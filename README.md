@@ -2,6 +2,10 @@
 
 A reproducible single-host homelab intended for a Debian 13 SFF server.
 
+> **Status:** the image tags in `config/versions.yml` are the ones this
+> repository was written against. Validate them in your own environment before
+> the first production deployment.
+
 ## Design goals
 
 1. **Git is the source of truth** for host configuration, Compose definitions,
@@ -15,8 +19,11 @@ A reproducible single-host homelab intended for a Debian 13 SFF server.
 8. **Backups are separate from the server**. Local backup staging is not a backup
    until it is replicated to another device/location.
 9. **Images are version-pinned** through `config/versions.yml`; upgrades are
-   deliberate and reviewable.
+   deliberate and reviewable. `scripts/check-versions` enforces that the pins
+   and the Compose files agree.
 10. Every service has a separate Compose project and persistent directory.
+11. **Secrets never enter Git.** They live in `config/secrets.env` (gitignored,
+    mode 600) and are rendered into `/run/homelab/compose.env` on tmpfs.
 
 ## Repository layout
 
@@ -24,40 +31,25 @@ A reproducible single-host homelab intended for a Debian 13 SFF server.
 bootstrap.sh
 ansible/
   inventory.yml.example
+  requirements.yml
   site.yml
   group_vars/all.yml.example
   roles/
 config/
-  services.yml
-  domains.yml.example
-  versions.yml
-  secrets/
+  services.yml          which services the deploy scripts act on
+  versions.yml          authoritative image pins
+  domains.yml.example   reverse-proxy hostnames
+  secrets.env.example   passwords, keys, host-specific paths
 services/
-  caddy/
-  nextcloud-aio/
-  vaultwarden/
-  homeassistant/
-  mosquitto/
-  zigbee2mqtt/
-  lldap/
-  adguard/
-  uptime-kuma/
-  paperless/
-  stirling-pdf/
-  immich/
-  jellyfin/
-  qbittorrent/
-  prowlarr/
-  radarr/
-  sonarr/
-  calibre/
-  odoo/
-  forgejo/
+  <one directory per service, each with its own compose.yml>
 scripts/
-  deploy
-  update-images
-  backup
-  healthcheck
+  render                generates the Compose env, Caddyfile, service configs
+  deploy                validate -> pull -> up, per service or category
+  check-versions        image pins vs. Compose files
+  update-images         pre-pull without recreating anything
+  backup                verified nightly snapshot + restic replication
+  healthcheck           host/service health, non-zero exit on problems
+  lib/common.sh
 backup/
   restic.env.example
 ```
@@ -67,30 +59,52 @@ backup/
 ```bash
 git clone <your-repository-url> /opt/homelab
 cd /opt/homelab
-
-cp ansible/inventory.yml.example ansible/inventory.yml
-cp ansible/group_vars/all.yml.example ansible/group_vars/all.yml
-cp config/domains.yml.example config/domains.yml
-cp backup/restic.env.example backup/restic.env
-
-# Review every file before running:
-./bootstrap.sh
+sudo ./bootstrap.sh
 ```
 
-The bootstrap installs Ansible/Docker/Tailscale prerequisites and configures the
-host. It does **not** automatically expose services to the public Internet.
+`bootstrap.sh` installs the prerequisites, seeds the host-specific files from
+their `.example` counterparts, and runs the Ansible play. It does **not**
+expose anything to the public Internet.
 
-Then:
+Then fill in the generated files — every empty value in `config/secrets.env`
+is required:
+
+```bash
+sudo tailscale up
+sudoedit /opt/homelab/config/secrets.env    # openssl rand -base64 36
+sudoedit /opt/homelab/config/domains.yml
+sudo ./scripts/render
+sudo make validate
+```
+
+And deploy:
 
 ```bash
 sudo ./scripts/deploy core
 sudo ./scripts/deploy documents
 sudo ./scripts/deploy photos
 sudo ./scripts/deploy media
+sudo ./scripts/deploy books
 sudo ./scripts/deploy business
 ```
 
-Run `sudo ./scripts/deploy --help` for service-level deployment.
+`scripts/deploy` runs `scripts/render` first, skips anything switched off in
+`config/services.yml`, and validates every Compose file before starting any of
+them. Run `sudo ./scripts/deploy --help` for service-level deployment.
+
+## How configuration flows
+
+```text
+config/secrets.env  ─┐
+config/domains.yml  ─┼─> scripts/render ─┬─> /run/homelab/compose.env  (tmpfs, 600)
+config/versions.yml ─┘                   ├─> /srv/data/caddy/Caddyfile
+                                         ├─> /srv/data/mosquitto/config/{mosquitto.conf,passwd}
+                                         └─> /srv/data/zigbee2mqtt/configuration.yaml (seeded once)
+```
+
+Compose files are never run without `--env-file /run/homelab/compose.env`;
+`scripts/deploy`, `scripts/update-images` and `make validate` all pass it.
+A bare `docker compose -f services/x/compose.yml up` will fail on purpose.
 
 ## Important operational rules
 
@@ -99,17 +113,35 @@ Run `sudo ./scripts/deploy --help` for service-level deployment.
 Application data is not configuration. Back it up with the application's
 supported procedure and/or the repository backup scripts.
 
+Two files under `/srv/data` are generated and **will be overwritten** by
+`scripts/render`: the Caddyfile and the Mosquitto config. Edit their sources in
+this repository instead.
+
 ### Do not use `latest` for production
 
-Images are pinned in `config/versions.yml`. Change a version deliberately,
-read the upstream release notes, back up the relevant database, then deploy.
+Images are pinned in `config/versions.yml` and repeated in each Compose file;
+`scripts/check-versions` fails if the two disagree, so they cannot drift.
+Nextcloud AIO is the one allowed exception, for the reason below.
+
+### Storage layout
+
+Persistent state lives in `/srv/data/<service>`. The media stack is different:
+qBittorrent, Radarr and Sonarr share a single `/srv/data/library:/data` mount
+containing `downloads/`, `media/` and `books/`.
+
+One mount, not several, is what makes hardlinks possible — `link()` across two
+separate bind mounts fails with `EXDEV` even on the same filesystem. Scoping it
+to `library/` also keeps Vaultwarden, Paperless, Immich and LLDAP out of reach
+of those containers.
 
 ### Nextcloud AIO
 
 Nextcloud AIO is special: its official deployment mechanism manages its own
-component containers. The repository therefore manages the AIO mastercontainer
-and its configuration, rather than pretending AIO is an ordinary single-image
-Compose service.
+component containers, self-updates, and is supported on `:latest` only. The
+repository therefore manages the AIO mastercontainer and its configuration,
+rather than pretending AIO is an ordinary single-image Compose service. Its
+admin interface binds to `AIO_BIND_ADDRESS` (loopback by default) — reach it
+over an SSH tunnel or set the host's Tailscale IP.
 
 ### Home Assistant
 
@@ -117,11 +149,14 @@ Home Assistant Container is used because the host is already a Docker server.
 It does not provide the Home Assistant OS add-on ecosystem. If add-ons are
 important, move HA to its own VM/HAOS installation.
 
+It runs with host networking but **not** privileged. Add the specific devices
+an integration needs; see `services/homeassistant/README.md`.
+
 ### Immich
 
 Immich's PostgreSQL database must stay on local Unix-compatible storage, not a
-network share. The repository separates the database path from the photo
-library.
+network share. `IMMICH_DB_DATA_LOCATION` and `IMMICH_UPLOAD_LOCATION` in
+`config/secrets.env` keep the database path separate from the photo library.
 
 ### Media stack
 
@@ -135,10 +170,13 @@ A replacement Debian host should be recoverable by:
 
 1. Install Debian.
 2. Clone this repository.
-3. Restore the Ansible Vault password/secret material.
-4. Run `./bootstrap.sh`.
-5. Restore application data/database backups.
-6. Run the relevant `scripts/deploy` targets.
-7. Validate with `scripts/healthcheck`.
+3. Restore `config/secrets.env` and `backup/restic.env` from your password
+   manager or Ansible Vault — they are deliberately not in Git.
+4. Run `sudo ./bootstrap.sh`.
+5. Restore application data/database backups (`scripts/backup` output, or the
+   restic repository).
+6. Run `sudo ./scripts/render`, then the relevant `scripts/deploy` targets.
+7. Validate with `sudo ./scripts/healthcheck` — it exits non-zero if anything
+   is wrong.
 
-The repository deliberately does not contain secrets or application data.
+The repository deliberately contains no secrets and no application data.

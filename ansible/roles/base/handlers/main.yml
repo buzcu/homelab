@@ -1,0 +1,7 @@
+---
+# Reload, not restart: existing sessions survive, so a mistake in the config
+# does not disconnect you before you can fix it.
+- name: Reload sshd
+  ansible.builtin.systemd:
+    name: ssh
+    state: reloaded

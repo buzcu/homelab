@@ -1,0 +1,7 @@
+---
+# Installed by bootstrap.sh. Debian's `ansible` package bundles these, but
+# pinning them here means the playbook also works on an `ansible-core`
+# installation, where roles/storage would otherwise fail on ansible.posix.mount.
+collections:
+  - name: community.general
+  - name: ansible.posix

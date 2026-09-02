@@ -1,7 +1,16 @@
 [Unit]
 Description=Homelab backup
 After=docker.service
+Requires=docker.service
 
 [Service]
 Type=oneshot
 ExecStart=/opt/homelab/scripts/backup
+# The script exits non-zero when any step fails, so this unit lands in
+# "failed" instead of reporting success over an empty snapshot. Check with:
+#   systemctl status homelab-backup.service
+#   cat /srv/backups/.last-status
+TimeoutStartSec=6h
+# Keep the nightly run out of the way of anything still serving requests.
+Nice=10
+IOSchedulingClass=idle

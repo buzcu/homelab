@@ -1,7 +1,13 @@
-# Use DNS names that are reachable only from your LAN/tailnet unless you
-# deliberately want public access.
+# Copy to config/domains.yml.
+#
+# scripts/render turns this into /srv/data/caddy/Caddyfile. Only entries with
+# a non-empty value get a reverse-proxy route, so leaving a service blank is
+# the supported way to keep it off the proxy — it can never break Caddy's
+# startup the way an unset placeholder would.
+#
+# Use DNS names reachable only from your LAN/tailnet unless you deliberately
+# want public access. MagicDNS names (*.ts.net) are the safe default.
 domains:
-  caddy: ""
   nextcloud: cloud.example.ts.net
   vaultwarden: vault.example.ts.net
   homeassistant: ha.example.ts.net

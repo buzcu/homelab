@@ -1,3 +1,11 @@
+# AIO is the documented exception to the repository's pinning rule: the
+# mastercontainer self-updates and upstream supports :latest only. It pins its
+# own component containers.
+#
+# The admin interface is bound to AIO_BIND_ADDRESS (default 127.0.0.1) rather
+# than every interface. Reach it over an SSH tunnel:
+#   ssh -L 8080:127.0.0.1:8080 <host>
+# or set AIO_BIND_ADDRESS to this host's Tailscale IP in config/secrets.env.
 services:
   nextcloud-aio-mastercontainer:
     image: nextcloud/all-in-one:latest
@@ -5,7 +13,7 @@ services:
     restart: unless-stopped
     init: true
     ports:
-      - "8080:8080"
+      - "${AIO_BIND_ADDRESS:-127.0.0.1}:8080:8080"
     environment:
       APACHE_PORT: "11000"
       APACHE_IP_BINDING: "127.0.0.1"
@@ -13,6 +21,8 @@ services:
       NEXTCLOUD_UPLOAD_LIMIT: "10G"
     volumes:
       - nextcloud_aio_mastercontainer:/mnt/docker-aio-config
+      # Read-only is the documented AIO pattern, but note that Docker socket
+      # access is root-equivalent on this host regardless of the :ro flag.
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /srv/data/nextcloud-aio/ncdata:/mnt/ncdata
 

@@ -5,10 +5,22 @@
     state: directory
     mode: "0755"
 
-- name: Fail if requested data device does not exist
+- name: Stat requested data device
   ansible.builtin.stat:
     path: "{{ data_device }}"
   register: data_device_stat
+  when: data_device | length > 0
+
+# Without this, a typo in data_device silently skipped the mount and every
+# service wrote to the root disk instead — discovered only once it filled up.
+- name: Fail if the requested data device does not exist
+  ansible.builtin.assert:
+    that:
+      - data_device_stat.stat.exists
+    fail_msg: >-
+      data_device is set to '{{ data_device }}' but that device does not exist.
+      Fix the value in group_vars/all.yml, or set it to "" to keep the data
+      root on the system disk.
   when: data_device | length > 0
 
 - name: Mount dedicated data disk
@@ -18,9 +30,7 @@
     fstype: "{{ data_filesystem }}"
     opts: defaults,noatime
     state: mounted
-  when:
-    - data_device | length > 0
-    - data_device_stat.stat.exists
+  when: data_device | length > 0
 
 - name: Create persistent directories
   ansible.builtin.file:
@@ -48,7 +58,29 @@
     - "{{ data_root }}/calibre"
     - "{{ data_root }}/odoo"
     - "{{ data_root }}/forgejo"
-    - "{{ data_root }}/downloads"
-    - "{{ data_root }}/media"
-    - "{{ data_root }}/books"
-    - "{{ backup_root }}"
+
+# One shared subtree for the media stack. qBittorrent and the *arr apps mount
+# {{ data_root }}/library as a single /data, which is what allows hardlinks:
+# link() across two separate bind mounts fails with EXDEV. Keeping it separate
+# from the rest of {{ data_root }} also keeps Vaultwarden, Paperless, Immich
+# and LLDAP out of reach of those containers.
+- name: Create shared media library subtree
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "1000"
+    group: "1000"
+    mode: "0775"
+  loop:
+    - "{{ data_root }}/library"
+    - "{{ data_root }}/library/downloads"
+    - "{{ data_root }}/library/media"
+    - "{{ data_root }}/library/books"
+
+- name: Create backup root
+  ansible.builtin.file:
+    path: "{{ backup_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"

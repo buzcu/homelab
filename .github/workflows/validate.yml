@@ -1,0 +1,58 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install linters
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck yamllint python3-yaml
+
+      - name: shellcheck
+        run: |
+          shellcheck -x bootstrap.sh scripts/render scripts/deploy scripts/backup \
+            scripts/healthcheck scripts/update-images scripts/check-versions
+
+      - name: yamllint
+        run: yamllint .
+
+      # The single source of truth for image tags must agree with every
+      # Compose file. This is what stops config/versions.yml drifting into
+      # decoration.
+      - name: Image pins match Compose files
+        run: ./scripts/check-versions
+
+      # Compose validation needs a populated environment. Build one from the
+      # example files by filling every empty value with a placeholder, so an
+      # unsubstituted variable fails CI instead of production.
+      - name: Render a placeholder environment
+        run: |
+          sed 's/^\([A-Za-z_][A-Za-z0-9_]*\)=$/\1=ci-placeholder/' \
+            config/secrets.env.example > config/secrets.env
+          cp config/domains.yml.example config/domains.yml
+          COMPOSE_ENV=/tmp/compose.env ./scripts/render --env-only
+
+      - name: Validate Compose files
+        run: |
+          rc=0
+          for f in services/*/compose.yml; do
+            echo "==> $f"
+            docker compose --env-file /tmp/compose.env -f "$f" config -q || rc=1
+          done
+          exit $rc
+
+      - name: No secrets committed
+        run: |
+          if git ls-files --error-unmatch config/secrets.env backup/restic.env 2>/dev/null; then
+            echo "A secrets file is tracked by Git." >&2
+            exit 1
+          fi
+          echo "OK: no secrets tracked."

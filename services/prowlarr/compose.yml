@@ -7,7 +7,7 @@ services:
     environment:
       PUID: "1000"
       PGID: "1000"
-      TZ: Europe/Amsterdam
+      TZ: "${TZ:-Europe/Amsterdam}"
     volumes:
+      # Prowlarr manages indexers only; it never touches media or downloads.
       - /srv/data/prowlarr:/config
-      - /srv/data:/data

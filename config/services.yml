@@ -1,5 +1,12 @@
-# true = enabled for deployment. Set false to keep the stack installed but
-# not deployed by category scripts.
+# true = enabled for deployment. Set false to keep the Compose definition in
+# the repository but out of every deploy.
+#
+# This file is enforced, not documentation: scripts/deploy skips a disabled
+# service (--force overrides), scripts/update-images does not pull it, and
+# scripts/backup does not report its missing container as a failure.
+#
+# A service that is not listed here defaults to enabled, so adding a new
+# Compose directory is never silently skipped.
 core:
   caddy: true
   nextcloud-aio: true

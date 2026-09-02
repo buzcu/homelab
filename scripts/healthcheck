@@ -1,20 +1,92 @@
 #!/usr/bin/env bash
-set -euo pipefail
+# Report host and service health AND exit non-zero when something is wrong,
+# so it is usable from cron, a monitor, or `make health` — not just by eye.
+set -uo pipefail
+
+# shellcheck source=lib/common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+
+problems=()
+note_problem() { problems+=("$1"); }
 
 echo "=== Host ==="
-hostnamectl
+hostnamectl 2>/dev/null || uname -a
 echo
+
 echo "=== Docker ==="
-docker info --format 'Server={{.ServerVersion}}'
+if docker info --format 'Server={{.ServerVersion}}' 2>/dev/null; then
+  :
+else
+  note_problem "Docker daemon is not responding"
+fi
 echo
+
 echo "=== Containers ==="
-docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+docker ps -a --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}' || true
 echo
+
+# Unhealthy containers.
+mapfile -t unhealthy < <(docker ps --filter health=unhealthy --format '{{.Names}}' 2>/dev/null)
+for name in ${unhealthy[@]+"${unhealthy[@]}"}; do
+  note_problem "container $name is unhealthy"
+done
+
+# Containers that exited without being asked to, and restart loops.
+while IFS=$'\t' read -r name state restarts; do
+  [[ -z "$name" ]] && continue
+  case "$state" in
+    running|created) ;;
+    *) note_problem "container $name is $state" ;;
+  esac
+  if [[ "${restarts:-0}" -gt 3 ]]; then
+    note_problem "container $name has restarted $restarts times"
+  fi
+done < <(docker ps -a --format '{{.Names}}' 2>/dev/null | while read -r c; do
+  docker inspect -f '{{.Name}}	{{.State.Status}}	{{.RestartCount}}' "$c" 2>/dev/null |
+    sed 's|^/||'
+done)
+
 echo "=== Disk ==="
 df -h / /srv/data /srv/backups 2>/dev/null || df -h
+# A homelab dies of a full disk more often than of anything else.
+while read -r pct mount; do
+  [[ "${pct%\%}" -ge 90 ]] && note_problem "filesystem $mount is ${pct} full"
+done < <(df --output=pcent,target / /srv/data /srv/backups 2>/dev/null | tail -n +2 | awk '{print $1, $2}')
 echo
+
 echo "=== Memory ==="
 free -h
 echo
+
 echo "=== Tailscale ==="
-tailscale status || true
+if command -v tailscale >/dev/null 2>&1; then
+  tailscale status || note_problem "tailscale status failed (not logged in?)"
+else
+  note_problem "tailscale is not installed"
+fi
+echo
+
+echo "=== Last backup ==="
+status_file=/srv/backups/.last-status
+if [[ -f "$status_file" ]]; then
+  cat "$status_file"
+  if grep -q '^status=failed' "$status_file"; then
+    note_problem "the last backup run failed (see $status_file)"
+  fi
+  # A backup nobody noticed stopped running is the same as no backup.
+  age_days=$(( ( $(date +%s) - $(stat -c %Y "$status_file") ) / 86400 ))
+  if [[ "$age_days" -gt 2 ]]; then
+    note_problem "the last backup is $age_days days old"
+  fi
+else
+  note_problem "no backup has ever completed ($status_file missing)"
+fi
+echo
+
+echo "=== Result ==="
+if [[ ${#problems[@]} -eq 0 ]]; then
+  echo "OK: no problems detected."
+  exit 0
+fi
+printf 'PROBLEM: %s\n' "${problems[@]}"
+exit 1

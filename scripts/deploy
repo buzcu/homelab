@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SERVICES_FILE="$ROOT/config/services.yml"
+# shellcheck source=lib/common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 
 usage() {
   cat <<EOF
 Usage:
-  sudo $0 <category>
-  sudo $0 <service>
-  sudo $0 all
+  sudo $0 [--force] [--no-render] <category|service|all>
   sudo $0 --help
 
 Categories:
@@ -20,51 +18,80 @@ Categories:
   media      jellyfin, qbittorrent, prowlarr, radarr, sonarr
   books      calibre
   business   odoo, forgejo
+
+Options:
+  --force      Deploy even if config/services.yml marks the service disabled.
+  --no-render  Skip scripts/render. Only use it when nothing in config/ changed.
+
+Services disabled in config/services.yml are skipped, not deployed.
 EOF
 }
 
-[[ $# -eq 1 ]] || { usage; exit 1; }
-TARGET="$1"
-[[ "$TARGET" != "--help" ]] || { usage; exit 0; }
+FORCE=false
+RENDER=true
+TARGET=""
 
-declare -A groups=(
-  [core]="caddy nextcloud-aio vaultwarden homeassistant mosquitto zigbee2mqtt lldap adguard uptime-kuma"
-  [documents]="paperless stirling-pdf"
-  [photos]="immich"
-  [media]="jellyfin qbittorrent prowlarr radarr sonarr"
-  [books]="calibre"
-  [business]="odoo forgejo"
-)
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --help|-h) usage; exit 0 ;;
+    --force)     FORCE=true; shift ;;
+    --no-render) RENDER=false; shift ;;
+    -*) usage >&2; die "unknown option: $1" ;;
+    *)
+      [[ -z "$TARGET" ]] || { usage >&2; die "only one target may be given"; }
+      TARGET="$1"; shift ;;
+  esac
+done
 
-services_for_target=()
-if [[ "$TARGET" == "all" ]]; then
-  for g in core documents photos media books business; do
-    services_for_target+=(${groups[$g]})
-  done
-elif [[ -n "${groups[$TARGET]:-}" ]]; then
-  services_for_target=(${groups[$TARGET]})
-else
-  services_for_target=("$TARGET")
+[[ -n "$TARGET" ]] || { usage >&2; exit 1; }
+
+require_root "$TARGET"
+require_cmd docker
+
+if [[ "$RENDER" == true ]]; then
+  "$ROOT/scripts/render"
+  echo
 fi
+require_compose_env
 
-for svc in "${services_for_target[@]}"; do
-  dir="$ROOT/services/$svc"
-  compose="$dir/compose.yml"
+mapfile -t services < <(resolve_target "$TARGET")
 
-  if [[ ! -f "$compose" ]]; then
-    echo "ERROR: missing $compose" >&2
-    exit 1
+# Validate everything before changing anything, so a typo in one Compose file
+# cannot leave the stack half-deployed.
+planned=()
+for svc in "${services[@]}"; do
+  compose="$ROOT/services/$svc/compose.yml"
+  [[ -f "$compose" ]] || die "missing $compose"
+
+  if [[ "$FORCE" != true && "$(service_enabled "$svc")" == "false" ]]; then
+    log "Skipping $svc (disabled in config/services.yml; --force overrides)"
+    continue
   fi
 
-  echo "==> Validating $svc"
-  docker compose -f "$compose" config -q
-
-  echo "==> Pulling $svc"
-  docker compose -f "$compose" pull
-
-  echo "==> Starting $svc"
-  docker compose -f "$compose" up -d
-
-  echo "==> Status $svc"
-  docker compose -f "$compose" ps
+  log "Validating $svc"
+  dc -f "$compose" config -q
+  planned+=("$svc")
 done
+
+if [[ ${#planned[@]} -eq 0 ]]; then
+  log "Nothing to deploy."
+  exit 0
+fi
+
+echo
+for svc in "${planned[@]}"; do
+  compose="$ROOT/services/$svc/compose.yml"
+
+  log "Pulling $svc"
+  dc -f "$compose" pull
+
+  log "Starting $svc"
+  dc -f "$compose" up -d --remove-orphans
+
+  log "Status $svc"
+  dc -f "$compose" ps
+  echo
+done
+
+log "Deployed: ${planned[*]}"
+log "Verify with: sudo $ROOT/scripts/healthcheck"

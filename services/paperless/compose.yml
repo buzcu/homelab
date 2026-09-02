@@ -2,25 +2,39 @@ services:
   broker:
     image: redis:7.4-alpine
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - /srv/data/paperless/redis:/data
 
   db:
     image: postgres:17-alpine
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paperless -d paperless"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     environment:
       POSTGRES_DB: paperless
       POSTGRES_USER: paperless
-      POSTGRES_PASSWORD: "${PAPERLESS_DB_PASSWORD}"
+      POSTGRES_PASSWORD: "${PAPERLESS_DB_PASSWORD:?set PAPERLESS_DB_PASSWORD in config/secrets.env}"
     volumes:
       - /srv/data/paperless/postgres:/var/lib/postgresql/data
 
   webserver:
     image: ghcr.io/paperless-ngx/paperless-ngx:2.20.0
     restart: unless-stopped
+    # Waiting for health, not just for start, avoids a crash loop on the
+    # first boot while PostgreSQL initialises.
     depends_on:
-      - db
-      - broker
+      db:
+        condition: service_healthy
+      broker:
+        condition: service_healthy
     ports:
       - "127.0.0.1:8000:8000"
     environment:
@@ -29,9 +43,9 @@ services:
       PAPERLESS_DBNAME: paperless
       PAPERLESS_DBUSER: paperless
       PAPERLESS_DBPASS: "${PAPERLESS_DB_PASSWORD}"
-      PAPERLESS_TIME_ZONE: Europe/Amsterdam
-      PAPERLESS_URL: "https://${PAPERLESS_DOMAIN}"
-      PAPERLESS_SECRET_KEY: "${PAPERLESS_SECRET_KEY}"
+      PAPERLESS_TIME_ZONE: "${TZ:-Europe/Amsterdam}"
+      PAPERLESS_URL: "https://${PAPERLESS_DOMAIN:?set paperless in config/domains.yml}"
+      PAPERLESS_SECRET_KEY: "${PAPERLESS_SECRET_KEY:?set PAPERLESS_SECRET_KEY in config/secrets.env}"
       PAPERLESS_OCR_LANGUAGE: eng+deu+tur
     volumes:
       - /srv/data/paperless/data:/usr/src/paperless/data

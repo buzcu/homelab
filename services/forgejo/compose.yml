@@ -4,7 +4,9 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:3002:3000"
-      - "127.0.0.1:2222:22"
+      # 127.0.0.1 makes git-over-SSH unreachable from the tailnet. Set
+      # FORGEJO_SSH_BIND to this host's Tailscale IP to allow it.
+      - "${FORGEJO_SSH_BIND:-127.0.0.1}:2222:22"
     environment:
       USER_UID: "1000"
       USER_GID: "1000"

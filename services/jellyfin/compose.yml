@@ -4,7 +4,9 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:8096:8096"
+    # Hardware transcoding is not configured. Test the host's VAAPI support
+    # before adding: devices: ["/dev/dri:/dev/dri"]
     volumes:
       - /srv/data/jellyfin/config:/config
       - /srv/data/jellyfin/cache:/cache
-      - /srv/data/media:/media:ro
+      - /srv/data/library/media:/media:ro

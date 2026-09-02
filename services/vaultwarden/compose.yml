@@ -5,9 +5,10 @@ services:
     ports:
       - "127.0.0.1:8081:80"
     environment:
-      WEBSOCKET_ENABLED: "true"
+      # Must be the full external URL. Bitwarden clients, WebAuthn and
+      # invitation links all break silently if this is wrong or empty.
+      DOMAIN: "${VAULTWARDEN_URL:?set VAULTWARDEN_URL or vaultwarden domain}"
       SIGNUPS_ALLOWED: "false"
       INVITATIONS_ALLOWED: "true"
-      DOMAIN: "${VAULTWARDEN_DOMAIN}"
     volumes:
       - /srv/data/vaultwarden:/data

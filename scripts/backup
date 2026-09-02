@@ -1,32 +1,241 @@
 #!/usr/bin/env bash
+# Nightly backup. Every step is verified; a failure anywhere makes the whole
+# run exit non-zero so the systemd unit goes into a failed state instead of
+# reporting success over an empty snapshot.
+#
+# What this covers:
+#   - logical PostgreSQL dumps (immich, paperless, odoo)
+#   - consistent SQLite copies via `.backup` (vaultwarden, lldap, *arr, ...)
+#   - configuration/state directories under /srv/data
+#   - the repository itself
+#
+# What this deliberately does NOT cover, because it is too large to snapshot
+# nightly and belongs in restic (see backup/restic.env.example):
+#   - /srv/data/immich/library, /srv/data/media, /srv/data/books,
+#     /srv/data/downloads
+#   - Nextcloud AIO, which has its own supported Borg backup in the AIO UI
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+
+require_root
+require_cmd docker
+require_cmd sqlite3
+
+BACKUP_ROOT="/srv/backups"
+KEEP_SNAPSHOTS="${KEEP_SNAPSHOTS:-14}"
 STAMP="$(date +%Y-%m-%d_%H-%M-%S)"
-DEST="/srv/backups/$STAMP"
+DEST="$BACKUP_ROOT/$STAMP"
+STATUS_FILE="$BACKUP_ROOT/.last-status"
 
-mkdir -p "$DEST"
-chmod 700 "$DEST"
+errors=()
+record_error() { errors+=("$1"); warn "$1"; }
 
-# Configuration snapshot
-tar -C /srv -czf "$DEST/docker-config.tgz" data/caddy data/homeassistant data/lldap \
-  data/mosquitto data/zigbee2mqtt 2>/dev/null || true
+finish() {
+  local rc=$?
+  if [[ ${#errors[@]} -gt 0 ]]; then
+    {
+      echo "status=failed"
+      echo "stamp=$STAMP"
+      echo "finished=$(date -Is)"
+      printf 'error=%s\n' "${errors[@]}"
+    } > "$STATUS_FILE"
+    echo
+    warn "${#errors[@]} step(s) failed:"
+    printf '  - %s\n' "${errors[@]}" >&2
+    exit 1
+  fi
+  if [[ $rc -ne 0 ]]; then
+    printf 'status=failed\nstamp=%s\nfinished=%s\nerror=aborted with exit %s\n' \
+      "$STAMP" "$(date -Is)" "$rc" > "$STATUS_FILE"
+    exit "$rc"
+  fi
+  printf 'status=ok\nstamp=%s\nfinished=%s\npath=%s\n' \
+    "$STAMP" "$(date -Is)" "$DEST" > "$STATUS_FILE"
+}
+trap finish EXIT
 
-# Compose and Ansible repository snapshot
-tar -C "$ROOT" -czf "$DEST/repository.tgz" \
-  ansible config services scripts backup README.md Makefile .gitignore
+install -d -m 0700 "$BACKUP_ROOT"
+install -d -m 0700 "$DEST"
 
-# PostgreSQL logical dumps for supported stacks.
-docker exec immich_postgres pg_dump -U postgres immich \
-  > "$DEST/immich.sql" 2>/dev/null || true
+container_running() {
+  [[ "$(docker inspect -f '{{.State.Running}}' "$1" 2>/dev/null || echo false)" == "true" ]]
+}
 
-docker exec odoo-db-1 pg_dump -U odoo postgres \
-  > "$DEST/odoo.sql" 2>/dev/null || true
+# Skip a service that is intentionally switched off; anything else that is
+# missing is a real failure worth reporting.
+skip_if_disabled() {
+  [[ "$(service_enabled "$1")" == "false" ]]
+}
 
-docker exec paperless-db-1 pg_dump -U paperless paperless \
-  > "$DEST/paperless.sql" 2>/dev/null || true
+# ---------------------------------------------------------------------------
+# PostgreSQL logical dumps
+# ---------------------------------------------------------------------------
+# usage: pg_dump_to <service> <container> <user> <db|ALL> <outfile-basename>
+pg_dump_to() {
+  local svc="$1" container="$2" user="$3" db="$4" name="$5"
+  local out="$DEST/$name.sql.gz"
 
-# Retain 14 local snapshots. Replicate these to another machine using restic.
-find /srv/backups -mindepth 1 -maxdepth 1 -type d -mtime +14 -exec rm -rf {} +
+  if skip_if_disabled "$svc"; then
+    log "Skipping $svc database (disabled in config/services.yml)"
+    return 0
+  fi
+  if ! container_running "$container"; then
+    record_error "$svc: container $container is not running; no database dump taken"
+    return 0
+  fi
 
-echo "Backup snapshot: $DEST"
+  log "Dumping $svc database"
+  local cmd=(pg_dump --clean --if-exists -U "$user" "$db")
+  [[ "$db" == "ALL" ]] && cmd=(pg_dumpall --clean -U "$user")
+
+  if ! docker exec "$container" "${cmd[@]}" 2>"$DEST/$name.err" | gzip > "$out"; then
+    record_error "$svc: dump failed ($(tr '\n' ' ' < "$DEST/$name.err" | head -c 200))"
+    rm -f "$out"
+    return 0
+  fi
+  rm -f "$DEST/$name.err"
+
+  # A dump that cannot be decompressed, or that is effectively empty, is not a
+  # backup. Catching that now beats discovering it during a restore. One pass
+  # over the stream validates the gzip and measures the payload at once.
+  local bytes
+  if ! bytes="$(zcat "$out" | wc -c)"; then
+    record_error "$svc: dump $out is not readable gzip"
+  elif [[ "$bytes" -lt 1024 ]]; then
+    record_error "$svc: dump $out is suspiciously small ($bytes bytes)"
+  else
+    log "    $(du -h "$out" | cut -f1) $name.sql.gz"
+  fi
+}
+
+pg_dump_to immich    immich_postgres  postgres  immich     immich
+pg_dump_to paperless paperless-db-1   paperless paperless  paperless
+# Odoo creates one database per Odoo database, not a single fixed name, so the
+# cluster-wide dump is the only correct choice here.
+pg_dump_to odoo      odoo-db-1        odoo      ALL        odoo
+
+# ---------------------------------------------------------------------------
+# SQLite: online .backup, never a raw copy of a live file
+# ---------------------------------------------------------------------------
+sqlite_backup() {
+  local svc="$1" dir="/srv/data/$1"
+
+  if skip_if_disabled "$svc" || [[ ! -d "$dir" ]]; then
+    return 0
+  fi
+
+  local found=0 db out
+  while IFS= read -r -d '' db; do
+    found=1
+    out="$DEST/sqlite-$svc-$(basename "$db").gz"
+    if sqlite3 "$db" ".backup '/tmp/homelab-backup.sqlite'" 2>/dev/null \
+       && gzip -c /tmp/homelab-backup.sqlite > "$out"; then
+      log "    $(du -h "$out" | cut -f1) $(basename "$out")"
+    else
+      record_error "$svc: sqlite backup of $db failed"
+      rm -f "$out"
+    fi
+    rm -f /tmp/homelab-backup.sqlite
+  done < <(find "$dir" -maxdepth 3 \( -name '*.db' -o -name '*.sqlite3' \) -type f -print0)
+
+  if [[ $found -eq 0 ]]; then
+    log "    $svc: no SQLite database under $dir yet"
+  fi
+}
+
+log "Backing up SQLite databases"
+for svc in vaultwarden lldap uptime-kuma prowlarr radarr sonarr calibre forgejo; do
+  sqlite_backup "$svc"
+done
+
+# ---------------------------------------------------------------------------
+# Configuration and state directories
+# ---------------------------------------------------------------------------
+# Live SQLite files are excluded: the consistent copies above supersede them.
+log "Archiving configuration directories"
+config_dirs=()
+for svc in caddy vaultwarden homeassistant mosquitto zigbee2mqtt lldap adguard \
+           uptime-kuma paperless stirling-pdf jellyfin qbittorrent prowlarr \
+           radarr sonarr calibre odoo forgejo; do
+  if skip_if_disabled "$svc"; then
+    continue
+  fi
+  if [[ -d "/srv/data/$svc" ]]; then
+    config_dirs+=("$svc")
+  fi
+done
+
+if [[ ${#config_dirs[@]} -gt 0 ]]; then
+  if tar -C /srv/data \
+        --exclude='*.db' --exclude='*.db-wal' --exclude='*.db-shm' \
+        --exclude='*.sqlite3' --exclude='*.sqlite3-wal' --exclude='*.sqlite3-shm' \
+        --exclude='paperless/postgres' --exclude='odoo/postgres' \
+        --exclude='jellyfin/cache' \
+        -czf "$DEST/config.tgz" "${config_dirs[@]}"; then
+    log "    $(du -h "$DEST/config.tgz" | cut -f1) config.tgz (${#config_dirs[@]} services)"
+  else
+    record_error "config directory archive failed"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Repository snapshot
+# ---------------------------------------------------------------------------
+# Tracked files only. Secrets are gitignored and must be restored from the
+# password manager / Ansible Vault, not from here.
+log "Archiving repository"
+if git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if ! git -C "$ROOT" archive --format=tar.gz -o "$DEST/repository.tgz" HEAD; then
+    record_error "repository archive failed"
+  fi
+elif ! tar -C "$ROOT" -czf "$DEST/repository.tgz" \
+        --exclude-vcs --exclude='config/secrets.env' --exclude='backup/restic.env' .; then
+  record_error "repository archive failed"
+fi
+
+# ---------------------------------------------------------------------------
+# Off-host replication
+# ---------------------------------------------------------------------------
+# A snapshot on the same machine is staging, not a backup.
+if [[ -f "$ROOT/backup/restic.env" ]]; then
+  if ! command -v restic >/dev/null 2>&1; then
+    record_error "backup/restic.env exists but restic is not installed"
+  else
+    log "Replicating to restic repository"
+    set -a
+    # shellcheck disable=SC1091
+    source "$ROOT/backup/restic.env"
+    set +a
+
+    # Large media paths are opt-in via restic.env; they are not in the
+    # nightly snapshot above.
+    extra_paths=()
+    read -r -a extra_paths <<< "${BACKUP_EXTRA_PATHS:-}"
+
+    if restic backup --tag homelab "$DEST" ${extra_paths[@]+"${extra_paths[@]}"}; then
+      restic forget --tag homelab \
+        --keep-daily 14 --keep-weekly 8 --keep-monthly 12 --prune \
+        || record_error "restic forget/prune failed"
+    else
+      record_error "restic backup failed"
+    fi
+  fi
+else
+  warn "backup/restic.env not configured: this snapshot exists only on this host."
+fi
+
+# ---------------------------------------------------------------------------
+# Retention: keep the newest N snapshot directories
+# ---------------------------------------------------------------------------
+mapfile -t snapshots < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -r)
+if [[ ${#snapshots[@]} -gt $KEEP_SNAPSHOTS ]]; then
+  for old in "${snapshots[@]:$KEEP_SNAPSHOTS}"; do
+    log "Removing old snapshot $old"
+    rm -rf "${BACKUP_ROOT:?}/$old"
+  done
+fi
+
+echo
+log "Backup snapshot: $DEST ($(du -sh "$DEST" | cut -f1))"

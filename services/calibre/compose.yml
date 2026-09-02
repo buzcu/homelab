@@ -7,7 +7,7 @@ services:
     environment:
       PUID: "1000"
       PGID: "1000"
-      TZ: Europe/Amsterdam
+      TZ: "${TZ:-Europe/Amsterdam}"
     volumes:
       - /srv/data/calibre:/config
-      - /srv/data/books:/books
+      - /srv/data/library/books:/books
