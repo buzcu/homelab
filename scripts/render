@@ -165,8 +165,22 @@ out = [
 ]
 
 email = os.environ.get('ACME_EMAIL', '').strip()
-if email:
-    out += ["{", f"    email {email}", "}", ""]
+acme_ca = os.environ.get('CADDY_ACME_CA', '').strip()
+
+if email or acme_ca:
+    block = ["{"]
+    if email:
+        block.append(f"    email {email}")
+    if acme_ca:
+        # Pointing at a non-production directory is how a first public
+        # deployment gets tested without spending the production rate limit
+        # for the name on a misconfigured port forward.
+        block.append(f"    acme_ca {acme_ca}")
+    block.append("}")
+    if acme_ca:
+        block.insert(0, "# CADDY_ACME_CA is set: certificates come from a non-default CA.")
+        block.insert(1, "# Browsers will not trust a staging certificate - that is expected.")
+    out += block + [""]
 else:
     out += [
         "# No ACME_EMAIL set: Caddy issues internal certificates only.",
@@ -223,6 +237,14 @@ else
     warn "Caddy is running but reload failed. It is still serving the previous routes."
     warn "Investigate with: docker logs $caddy_cid"
   fi
+fi
+
+# Loud on every run, not just the one that set it: a staging CA left in place
+# serves certificates no browser trusts, and the symptom looks like a broken
+# deployment rather than a leftover setting.
+if [[ -n "${CADDY_ACME_CA:-}" ]]; then
+  warn "CADDY_ACME_CA is set to ${CADDY_ACME_CA}"
+  warn "Certificates are NOT from the production CA. Clear it in config/secrets.env once the setup is verified."
 fi
 
 # ---------------------------------------------------------------------------
