@@ -1,27 +1,43 @@
 # Copy to config/domains.yml.
 #
-# scripts/render turns this into /srv/data/caddy/Caddyfile. Only entries with
-# a non-empty value get a reverse-proxy route, so leaving a service blank is
-# the supported way to keep it off the proxy — it can never break Caddy's
+# Hostnames only. Everything structural about a service - which category it is
+# in, whether it is enabled, and which port Caddy proxies to - lives in
+# config/services.yml. The two are joined by scripts/render, which writes
+# /srv/data/caddy/Caddyfile.
+#
+# Keys are service directory names, matching config/services.yml and
+# services/<name>/. A key that names no routable service produces a warning
+# rather than silence.
+#
+# A service only gets a route when it has a non-empty hostname here, an
+# upstream in config/services.yml, and is enabled. Leaving a hostname blank is
+# the supported way to keep a service off the proxy; it can never break Caddy's
 # startup the way an unset placeholder would.
 #
-# Use DNS names reachable only from your LAN/tailnet unless you deliberately
-# want public access. MagicDNS names (*.ts.net) are the safe default.
+# Use names reachable only from your LAN/tailnet unless you deliberately want
+# public access. MagicDNS names (*.ts.net) are the safe default; for a public
+# deployment see the "Publishing to the Internet" section of docs/OPERATIONS.md.
 domains:
-  nextcloud: cloud.example.ts.net
+  # Enabled by default in config/services.yml.
+  nextcloud-aio: cloud.example.ts.net
   vaultwarden: vault.example.ts.net
   homeassistant: ha.example.ts.net
   lldap: ldap.example.ts.net
-  adguard: dns.example.ts.net
-  uptime: status.example.ts.net
+  uptime-kuma: status.example.ts.net
   paperless: paperless.example.ts.net
-  stirling: pdf.example.ts.net
+  stirling-pdf: pdf.example.ts.net
   immich: photos.example.ts.net
-  jellyfin: media.example.ts.net
-  qbittorrent: torrents.example.ts.net
-  prowlarr: prowlarr.example.ts.net
-  radarr: radarr.example.ts.net
-  sonarr: sonarr.example.ts.net
-  calibre: books.example.ts.net
-  odoo: odoo.example.ts.net
-  forgejo: git.example.ts.net
+
+  # Disabled by default. Fill the hostname in when you enable the service in
+  # config/services.yml - a hostname for a disabled service is skipped with a
+  # warning, because the route would only ever answer 502.
+  zigbee2mqtt: ""
+  adguard: ""
+  jellyfin: ""
+  qbittorrent: ""
+  prowlarr: ""
+  radarr: ""
+  sonarr: ""
+  calibre: ""
+  odoo: ""
+  forgejo: ""

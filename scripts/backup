@@ -120,18 +120,11 @@ pg_dump_to odoo      odoo-db-1        odoo      ALL        odoo
 # ---------------------------------------------------------------------------
 # The services whose /srv/data directory this script is responsible for.
 # ---------------------------------------------------------------------------
-# One list drives both passes below. Keeping two lists is what previously let
+# Read from config/services.yml (everything without `backup: false`), and used
+# by both passes below. Keeping a hand-maintained list is what previously let
 # Home Assistant's and Jellyfin's SQLite databases fall through the gap: the
 # archive excludes *.db, and neither service was in the SQLite list.
-#
-# Not listed, deliberately:
-#   immich          PostgreSQL is dumped above; the library goes to restic.
-#   nextcloud-aio   has its own supported Borg backup in the AIO interface.
-BACKED_UP_SERVICES=(
-  caddy vaultwarden homeassistant mosquitto zigbee2mqtt lldap adguard
-  uptime-kuma paperless stirling-pdf jellyfin qbittorrent prowlarr
-  radarr sonarr calibre odoo forgejo
-)
+mapfile -t BACKED_UP_SERVICES < <(backed_up_services)
 
 # ---------------------------------------------------------------------------
 # SQLite: online .backup, never a raw copy of a live file

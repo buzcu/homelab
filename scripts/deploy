@@ -11,14 +11,8 @@ Usage:
   sudo $0 [--force] [--no-render] <category|service|all>
   sudo $0 --help
 
-Categories:
-  core       caddy, nextcloud-aio, vaultwarden, homeassistant, mosquitto,
-             zigbee2mqtt, lldap, adguard, uptime-kuma
-  documents  paperless, stirling-pdf
-  photos     immich
-  media      jellyfin, qbittorrent, prowlarr, radarr, sonarr
-  books      calibre
-  business   odoo, forgejo
+Categories (from config/services.yml):
+$(describe_categories)
 
 Options:
   --force      Deploy even if config/services.yml marks the service disabled.

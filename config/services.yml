@@ -1,40 +1,137 @@
-# true = enabled for deployment. Set false to keep the Compose definition in
-# the repository but out of every deploy.
+# The service catalogue. This is the single structural source of truth:
+# scripts/lib/common.sh derives the deploy categories from it, scripts/render
+# derives the Caddy routes from it, and scripts/backup derives the directories
+# it archives from it. Adding a service means adding a Compose directory and an
+# entry here - no script is edited. scripts/check-versions fails if the two
+# ever disagree.
 #
-# This file is enforced, not documentation: scripts/deploy skips a disabled
-# service (--force overrides), scripts/update-images does not pull it, and
-# scripts/backup does not report its missing container as a failure.
+# Host-specific values deliberately live elsewhere: the hostnames go in
+# config/domains.yml, which is gitignored, so nobody's personal domains end up
+# in a committed file.
 #
-# A service that is not listed here defaults to enabled, so adding a new
-# Compose directory is never silently skipped.
-core:
-  caddy: true
-  nextcloud-aio: true
-  vaultwarden: true
-  homeassistant: true
-  mosquitto: true
-  zigbee2mqtt: false
-  lldap: true
-  adguard: false
-  uptime-kuma: true
+# Per service:
+#   category  which `scripts/deploy <category>` target it belongs to. Category
+#             order follows first appearance below.
+#   enabled   false keeps the definition in the repository but out of every
+#             deploy, pull and backup. Enforced, not documentation.
+#   upstream  where Caddy proxies to, matching the loopback binding in the
+#             service's compose.yml. Omit for anything that is not an HTTP
+#             application; those can never get a route.
+#   backup    omit for the normal case. false means scripts/backup does not
+#             archive /srv/data/<service> - only for services with their own
+#             supported backup path.
 
-documents:
-  paperless: true
-  stirling-pdf: true
+services:
+  # --- core ---------------------------------------------------------------
+  caddy:
+    category: core
+    enabled: true
+    # The proxy itself. It has no upstream and never routes to itself.
 
-photos:
-  immich: true
+  nextcloud-aio:
+    category: core
+    enabled: true
+    upstream: 127.0.0.1:11000
+    # AIO manages its own component containers and ships a supported Borg
+    # backup in its admin interface. Archiving /srv/data/nextcloud-aio from
+    # the outside would produce an inconsistent copy.
+    backup: false
 
-media:
-  jellyfin: false
-  qbittorrent: false
-  prowlarr: false
-  radarr: false
-  sonarr: false
+  vaultwarden:
+    category: core
+    enabled: true
+    upstream: 127.0.0.1:8081
 
-books:
-  calibre: false
+  homeassistant:
+    category: core
+    enabled: true
+    upstream: 127.0.0.1:8123
 
-business:
-  odoo: false
-  forgejo: false
+  mosquitto:
+    category: core
+    enabled: true
+    # MQTT, not HTTP. Reachable on 127.0.0.1:1883 and as mosquitto:1883 on the
+    # homelab network.
+
+  zigbee2mqtt:
+    category: core
+    enabled: false
+    upstream: 127.0.0.1:8087
+
+  lldap:
+    category: core
+    enabled: true
+    upstream: 127.0.0.1:17170
+
+  adguard:
+    category: core
+    enabled: false
+    upstream: 127.0.0.1:3000
+
+  uptime-kuma:
+    category: core
+    enabled: true
+    upstream: 127.0.0.1:3001
+
+  # --- documents ----------------------------------------------------------
+  paperless:
+    category: documents
+    enabled: true
+    upstream: 127.0.0.1:8000
+
+  stirling-pdf:
+    category: documents
+    enabled: true
+    upstream: 127.0.0.1:8082
+
+  # --- photos -------------------------------------------------------------
+  immich:
+    category: photos
+    enabled: true
+    upstream: 127.0.0.1:2283
+    # PostgreSQL is dumped separately and the photo library goes to restic;
+    # /srv/data/immich is far too large to re-archive nightly.
+    backup: false
+
+  # --- media --------------------------------------------------------------
+  jellyfin:
+    category: media
+    enabled: false
+    upstream: 127.0.0.1:8096
+
+  qbittorrent:
+    category: media
+    enabled: false
+    upstream: 127.0.0.1:8085
+
+  prowlarr:
+    category: media
+    enabled: false
+    upstream: 127.0.0.1:9696
+
+  radarr:
+    category: media
+    enabled: false
+    upstream: 127.0.0.1:7878
+
+  sonarr:
+    category: media
+    enabled: false
+    upstream: 127.0.0.1:8989
+
+  # --- books --------------------------------------------------------------
+  calibre:
+    category: books
+    enabled: false
+    upstream: 127.0.0.1:8083
+
+  # --- business -----------------------------------------------------------
+  odoo:
+    category: business
+    enabled: false
+    upstream: 127.0.0.1:8069
+
+  forgejo:
+    category: business
+    enabled: false
+    upstream: 127.0.0.1:3002

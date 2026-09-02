@@ -36,9 +36,9 @@ ansible/
   group_vars/all.yml.example
   roles/
 config/
-  services.yml          which services the deploy scripts act on
+  services.yml          the service catalogue: category, enablement, upstream
   versions.yml          authoritative image pins
-  domains.yml.example   reverse-proxy hostnames
+  domains.yml.example   reverse-proxy hostnames (host-specific, gitignored)
   secrets.env.example   passwords, keys, host-specific paths
 services/
   <one directory per service, each with its own compose.yml>
@@ -95,12 +95,18 @@ them. Run `sudo ./scripts/deploy --help` for service-level deployment.
 ## How configuration flows
 
 ```text
-config/secrets.env  ─┐
-config/domains.yml  ─┼─> scripts/render ─┬─> /run/homelab/compose.env  (tmpfs, 600)
+config/services.yml ─┐   (catalogue: category, enabled, upstream, backup scope)
+config/domains.yml  ─┤   (host-specific hostnames)
+config/secrets.env  ─┼─> scripts/render ─┬─> /run/homelab/compose.env  (tmpfs, 600)
 config/versions.yml ─┘                   ├─> /srv/data/caddy/Caddyfile
                                          ├─> /srv/data/mosquitto/config/{mosquitto.conf,passwd}
                                          └─> /srv/data/zigbee2mqtt/configuration.yaml (seeded once)
 ```
+
+`config/services.yml` is the single structural source. The deploy categories,
+the Caddy routes and the directories `scripts/backup` archives are all derived
+from it, so none of them can drift apart — adding a service means a Compose
+directory and one catalogue entry, never a change to a script.
 
 Compose files are never run without `--env-file /run/homelab/compose.env`;
 `scripts/deploy`, `scripts/update-images` and `make validate` all pass it.
