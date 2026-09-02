@@ -118,6 +118,22 @@ pg_dump_to paperless paperless-db-1   paperless paperless  paperless
 pg_dump_to odoo      odoo-db-1        odoo      ALL        odoo
 
 # ---------------------------------------------------------------------------
+# The services whose /srv/data directory this script is responsible for.
+# ---------------------------------------------------------------------------
+# One list drives both passes below. Keeping two lists is what previously let
+# Home Assistant's and Jellyfin's SQLite databases fall through the gap: the
+# archive excludes *.db, and neither service was in the SQLite list.
+#
+# Not listed, deliberately:
+#   immich          PostgreSQL is dumped above; the library goes to restic.
+#   nextcloud-aio   has its own supported Borg backup in the AIO interface.
+BACKED_UP_SERVICES=(
+  caddy vaultwarden homeassistant mosquitto zigbee2mqtt lldap adguard
+  uptime-kuma paperless stirling-pdf jellyfin qbittorrent prowlarr
+  radarr sonarr calibre odoo forgejo
+)
+
+# ---------------------------------------------------------------------------
 # SQLite: online .backup, never a raw copy of a live file
 # ---------------------------------------------------------------------------
 sqlite_backup() {
@@ -146,8 +162,12 @@ sqlite_backup() {
   fi
 }
 
+# Every managed service is scanned, not a hand-maintained subset. maxdepth 3
+# keeps this cheap: application databases sit at or above that depth
+# (homeassistant/home-assistant_v2.db, jellyfin/config/data/library.db) while
+# bulk media leaves live deeper and are never walked.
 log "Backing up SQLite databases"
-for svc in vaultwarden lldap uptime-kuma prowlarr radarr sonarr calibre forgejo; do
+for svc in "${BACKED_UP_SERVICES[@]}"; do
   sqlite_backup "$svc"
 done
 
@@ -157,9 +177,7 @@ done
 # Live SQLite files are excluded: the consistent copies above supersede them.
 log "Archiving configuration directories"
 config_dirs=()
-for svc in caddy vaultwarden homeassistant mosquitto zigbee2mqtt lldap adguard \
-           uptime-kuma paperless stirling-pdf jellyfin qbittorrent prowlarr \
-           radarr sonarr calibre odoo forgejo; do
+for svc in "${BACKED_UP_SERVICES[@]}"; do
   if skip_if_disabled "$svc"; then
     continue
   fi

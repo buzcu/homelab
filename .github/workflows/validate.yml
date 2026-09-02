@@ -52,10 +52,18 @@ jobs:
           done
           exit $rc
 
+      # `git ls-files --error-unmatch A B` exits non-zero on the first
+      # untracked path, so it reported success no matter what B was. Listing
+      # matches and testing for output has no such hole, and it also catches
+      # any other .env that is not an example file.
       - name: No secrets committed
         run: |
-          if git ls-files --error-unmatch config/secrets.env backup/restic.env 2>/dev/null; then
-            echo "A secrets file is tracked by Git." >&2
+          leaked=$(git ls-files -- \
+            config/secrets.env backup/restic.env '*.env' \
+            | grep -v '\.env\.example$' || true)
+          if [ -n "$leaked" ]; then
+            echo "Secret file(s) tracked by Git:" >&2
+            echo "$leaked" >&2
             exit 1
           fi
           echo "OK: no secrets tracked."

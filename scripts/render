@@ -109,13 +109,24 @@ if ! docker network inspect "$HOMELAB_NETWORK" >/dev/null 2>&1; then
   docker network create "$HOMELAB_NETWORK" >/dev/null
 fi
 
+# Read one image pin out of config/versions.yml.
+pinned_image() {
+  python3 -c '
+import yaml, sys
+print(yaml.safe_load(open(sys.argv[1]))["images"][sys.argv[2]])
+' "$ROOT/config/versions.yml" "$1"
+}
+
 # ---------------------------------------------------------------------------
 # 3. Caddyfile
 # ---------------------------------------------------------------------------
 log "Rendering /srv/data/caddy/Caddyfile"
 install -d -m 0755 /srv/data/caddy
 
-python3 - "$DOMAINS" /srv/data/caddy/Caddyfile <<'PY'
+CADDYFILE=/srv/data/caddy/Caddyfile
+CADDYFILE_NEW="$RUNTIME_DIR/Caddyfile.new"
+
+python3 - "$DOMAINS" "$CADDYFILE_NEW" <<'PY'
 import os, sys, yaml
 
 domains_path, out_path = sys.argv[1:3]
@@ -178,43 +189,83 @@ with open(out_path, 'w') as fh:
     fh.write("\n".join(out).rstrip() + "\n")
 print(f"    {routed} route(s)")
 PY
-chmod 644 /srv/data/caddy/Caddyfile
+
+if [[ -f "$CADDYFILE" ]] && cmp -s "$CADDYFILE_NEW" "$CADDYFILE"; then
+  log "    Caddyfile unchanged"
+  rm -f "$CADDYFILE_NEW"
+else
+  caddy_image="$(pinned_image caddy/caddy)"
+
+  # Validate before installing. An invalid Caddyfile takes every proxied
+  # service down at once, so the running configuration stays until the new
+  # one is known good.
+  if ! docker run --rm -v "$CADDYFILE_NEW:/etc/caddy/Caddyfile:ro" "$caddy_image" \
+       caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
+    rm -f "$CADDYFILE_NEW"
+    die "the generated Caddyfile is invalid; the running configuration was left in place"
+  fi
+
+  install -m 0644 "$CADDYFILE_NEW" "$CADDYFILE"
+  rm -f "$CADDYFILE_NEW"
+
+  # Compose compares service configuration, not the contents of a bind-mounted
+  # file, so `deploy caddy` would report the container as already running and
+  # never pick this up. Reload explicitly.
+  caddy_cid="$(docker ps -q \
+    --filter label=com.docker.compose.project=caddy \
+    --filter label=com.docker.compose.service=caddy)"
+  if [[ -z "$caddy_cid" ]]; then
+    log "    Caddy is not running; the new routes apply when it next starts"
+  elif docker exec "$caddy_cid" \
+         caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
+    log "    Caddy reloaded"
+  else
+    warn "Caddy is running but reload failed. It is still serving the previous routes."
+    warn "Investigate with: docker logs $caddy_cid"
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # 4. Mosquitto configuration and credentials
 # ---------------------------------------------------------------------------
-log "Rendering Mosquitto configuration"
-install -d -m 0755 /srv/data/mosquitto/config /srv/data/mosquitto/data /srv/data/mosquitto/log
-install -m 0644 "$ROOT/services/mosquitto/config/mosquitto.conf" \
-  /srv/data/mosquitto/config/mosquitto.conf
+# Gated on config/services.yml. Rendering unconditionally meant an operator who
+# does not use MQTT could not deploy anything at all: render runs before every
+# target and died here on an empty MOSQUITTO_PASSWORD.
+if [[ "$(service_enabled mosquitto)" == "true" ]]; then
+  log "Rendering Mosquitto configuration"
+  install -d -m 0755 /srv/data/mosquitto/config /srv/data/mosquitto/data /srv/data/mosquitto/log
+  install -m 0644 "$ROOT/services/mosquitto/config/mosquitto.conf" \
+    /srv/data/mosquitto/config/mosquitto.conf
 
-if [[ -z "${MOSQUITTO_PASSWORD:-}" ]]; then
-  die "MOSQUITTO_PASSWORD is empty in config/secrets.env, but mosquitto.conf sets allow_anonymous false. Every client would be rejected."
+  if [[ -z "${MOSQUITTO_PASSWORD:-}" ]]; then
+    die "MOSQUITTO_PASSWORD is empty in config/secrets.env, but mosquitto.conf sets allow_anonymous false. Every client would be rejected. Set it, or disable mosquitto in config/services.yml."
+  fi
+
+  # mosquitto_passwd hashes in place; run it in the same image the broker uses.
+  docker run --rm \
+    -v /srv/data/mosquitto/config:/mosquitto/config \
+    "$(pinned_image mosquitto/mosquitto)" \
+    mosquitto_passwd -b -c /mosquitto/config/passwd \
+    "${MOSQUITTO_USERNAME:-homelab}" "$MOSQUITTO_PASSWORD" >/dev/null
+  # The broker drops privileges to uid/gid 1883 and must be able to read this.
+  chown 1883:1883 /srv/data/mosquitto/config/passwd
+  chmod 600 /srv/data/mosquitto/config/passwd
+else
+  log "Skipping Mosquitto configuration (disabled in config/services.yml)"
 fi
-
-mosquitto_image="$(python3 -c '
-import yaml,sys
-print(yaml.safe_load(open(sys.argv[1]))["images"]["mosquitto/mosquitto"])
-' "$ROOT/config/versions.yml")"
-
-# mosquitto_passwd hashes in place; run it in the same image the broker uses.
-docker run --rm \
-  -v /srv/data/mosquitto/config:/mosquitto/config \
-  "$mosquitto_image" \
-  mosquitto_passwd -b -c /mosquitto/config/passwd \
-  "${MOSQUITTO_USERNAME:-homelab}" "$MOSQUITTO_PASSWORD" >/dev/null
-# The broker drops privileges to uid/gid 1883 and must be able to read this.
-chown 1883:1883 /srv/data/mosquitto/config/passwd
-chmod 600 /srv/data/mosquitto/config/passwd
 
 # ---------------------------------------------------------------------------
 # 5. Zigbee2MQTT seed configuration
 # ---------------------------------------------------------------------------
-install -d -m 0755 /srv/data/zigbee2mqtt
 z2m_config=/srv/data/zigbee2mqtt/configuration.yaml
-if [[ -f "$z2m_config" ]]; then
+if [[ "$(service_enabled zigbee2mqtt)" != "true" ]]; then
+  log "Skipping Zigbee2MQTT seed (disabled in config/services.yml)"
+elif [[ -f "$z2m_config" ]]; then
   log "Zigbee2MQTT configuration exists; leaving it untouched"
 else
+  [[ -n "${MOSQUITTO_PASSWORD:-}" ]] \
+    || die "zigbee2mqtt is enabled but MOSQUITTO_PASSWORD is empty; it could not reach the broker."
+  install -d -m 0755 /srv/data/zigbee2mqtt
   log "Seeding $z2m_config"
   cat > "$z2m_config" <<EOF
 # Seeded once by scripts/render. Zigbee2MQTT rewrites this file at runtime,
