@@ -248,7 +248,16 @@ fi
 # ---------------------------------------------------------------------------
 # Retention: keep the newest N snapshot directories
 # ---------------------------------------------------------------------------
-mapfile -t snapshots < <(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -r)
+# Matched against the exact YYYY-MM-DD_HH-MM-SS name this script creates, so
+# anything else living under /srv/backups is left alone. Without the pattern
+# this loop treated every directory as one of its own snapshots and deleted a
+# manual dump, or a restic repository placed here, once fifteen existed.
+# The name sorts chronologically, so a reverse sort is newest-first.
+mapfile -t snapshots < <(
+  find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d \
+    -name '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]_[0-9][0-9]-[0-9][0-9]-[0-9][0-9]' \
+    -printf '%f\n' | sort -r
+)
 if [[ ${#snapshots[@]} -gt $KEEP_SNAPSHOTS ]]; then
   for old in "${snapshots[@]:$KEEP_SNAPSHOTS}"; do
     log "Removing old snapshot $old"

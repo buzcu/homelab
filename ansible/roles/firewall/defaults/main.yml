@@ -1,0 +1,8 @@
+---
+# Role defaults so the role is self-contained: a group_vars/all.yml seeded
+# from an older example does not fail the play on an undefined variable.
+# group_vars overrides all of these.
+firewall_enabled: false
+firewall_public_web: false
+lan_cidr: 192.168.1.0/24
+tailscale_interface: tailscale0

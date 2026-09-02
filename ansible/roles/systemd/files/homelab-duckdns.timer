@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodic DuckDNS update
+
+[Timer]
+# Once shortly after boot, then every five minutes - DuckDNS asks callers not
+# to update more often than that.
+OnBootSec=1min
+OnUnitActiveSec=5min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target
