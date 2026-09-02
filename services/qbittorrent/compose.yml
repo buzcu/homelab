@@ -1,14 +1,21 @@
+# qBittorrent and the *arr apps share ONE mount, /srv/data/library:/data.
+# A single mount point is what makes hardlinks possible: link() across two
+# separate bind mounts fails with EXDEV even on the same filesystem.
+# The mount deliberately excludes the rest of /srv/data (Vaultwarden,
+# Paperless, Immich, LLDAP), which these containers have no business reading.
 services:
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent:5.1.2
     restart: unless-stopped
     ports:
       - "127.0.0.1:8085:8080"
+      # The BitTorrent listening port is intentionally not published: this
+      # stack is reachable through Tailscale only.
     environment:
       PUID: "1000"
       PGID: "1000"
-      TZ: Europe/Amsterdam
+      TZ: "${TZ:-Europe/Amsterdam}"
       WEBUI_PORT: "8080"
     volumes:
       - /srv/data/qbittorrent:/config
-      - /srv/data/downloads:/data/downloads
+      - /srv/data/library:/data

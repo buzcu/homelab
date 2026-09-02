@@ -1,14 +1,71 @@
 ---
-# Docker manipulates netfilter rules. We intentionally do not replace the
-# host firewall with a simplistic UFW ruleset. Services should not publish
-# ports unless explicitly required. Caddy/HA use host networking where needed.
+# Docker manipulates netfilter directly. This role therefore never flushes the
+# ruleset: it owns exactly one table ("inet homelab") and leaves Docker's
+# tables alone. A `flush ruleset` here would wipe Docker's rules on every
+# nftables reload and silently break container networking.
+#
+# The ruleset filters host-destined traffic (the input hook) only. Traffic to
+# published container ports is DNATed and traverses the forward hook, which
+# Docker owns, so containers are unaffected.
+#
+# firewall_enabled defaults to false: a wrong lan_cidr locks you out of SSH.
+# Enable it only once you can reach the host over Tailscale as a second path.
 - name: Install nftables
   ansible.builtin.apt:
     name: nftables
     state: present
+
+- name: Deploy homelab nftables ruleset
+  ansible.builtin.copy:
+    dest: /etc/nftables.conf
+    mode: "0644"
+    validate: "nft -c -f %s"
+    content: |
+      #!/usr/sbin/nft -f
+      # Managed by Ansible (roles/firewall). Do not edit by hand.
+      # Recreate only our own table; never flush Docker's.
+      table inet homelab
+      delete table inet homelab
+
+      table inet homelab {
+        chain input {
+          type filter hook input priority filter; policy drop;
+
+          iif lo accept
+          ct state established,related accept
+          ct state invalid drop
+          meta l4proto { icmp, ipv6-icmp } accept
+
+          # Containers reaching host-published services over the Docker bridges.
+          iifname "docker0" accept
+          iifname "br-*" accept
+
+          # Tailscale is the intended remote-access path.
+          iifname "{{ tailscale_interface }}" accept
+          udp dport 41641 accept
+
+          # LAN: SSH, the Caddy reverse proxy, and AdGuard DNS.
+          ip saddr {{ lan_cidr }} tcp dport { 22, 53, 80, 443 } accept
+          ip saddr {{ lan_cidr }} udp dport { 53 } accept
+
+          counter comment "dropped by homelab firewall"
+        }
+      }
+  notify: Reload nftables
+  when: firewall_enabled | bool
 
 - name: Enable nftables
   ansible.builtin.systemd:
     name: nftables
     enabled: true
     state: started
+  when: firewall_enabled | bool
+
+- name: Warn that the firewall is not enforcing anything
+  ansible.builtin.debug:
+    msg: >-
+      firewall_enabled is false: nftables is installed but no homelab ruleset
+      is loaded. Services are protected only by binding to 127.0.0.1. Set
+      firewall_enabled: true in group_vars/all.yml once you have confirmed
+      lan_cidr and a working Tailscale login.
+  when: not (firewall_enabled | bool)

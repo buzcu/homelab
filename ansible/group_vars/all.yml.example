@@ -1,5 +1,8 @@
 homelab_timezone: Europe/Amsterdam
 homelab_user: homelab
+
+# Docker's storage location. Changing this after installation does NOT migrate
+# existing images/containers; stop Docker and move /var/lib/docker yourself.
 docker_data_root: /var/lib/docker
 
 data_root: /srv/data
@@ -7,6 +10,8 @@ backup_root: /srv/backups
 
 # Dedicated data disk:
 # If you want Ansible to mount a dedicated disk, set these after formatting it.
+# A non-existent device now fails the play instead of silently leaving all data
+# on the system disk.
 data_device: ""
 data_mount: /srv/data
 data_filesystem: ext4
@@ -19,3 +24,9 @@ lan_cidr: 192.168.1.0/24
 
 # Tailscale interface.
 tailscale_interface: tailscale0
+
+# nftables ruleset (roles/firewall). Off by default: a wrong lan_cidr locks
+# you out of SSH. Turn it on once Tailscale gives you a second way in.
+# Recovery if you do lock yourself out: boot to console and run
+#   nft delete table inet homelab
+firewall_enabled: false

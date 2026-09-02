@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Fail if any services/*/compose.yml image disagrees with config/versions.yml.
+# Keeps the "images are pinned in one reviewable place" design goal honest.
+# Needs no Docker and no rendered environment, so CI can run it.
+set -euo pipefail
+
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+
+require_yaml
+
+python3 - "$ROOT" <<'PY'
+import pathlib, sys, yaml
+
+root = pathlib.Path(sys.argv[1])
+declared = (yaml.safe_load((root / "config/versions.yml").read_text()) or {}).get("images") or {}
+
+actual = {}
+for compose in sorted((root / "services").glob("*/compose.yml")):
+    service_dir = compose.parent.name
+    doc = yaml.safe_load(compose.read_text()) or {}
+    for name, spec in (doc.get("services") or {}).items():
+        image = (spec or {}).get("image")
+        if image:
+            actual[f"{service_dir}/{name}"] = image
+
+problems = []
+for key in sorted(set(declared) | set(actual)):
+    want, have = declared.get(key), actual.get(key)
+    if want is None:
+        problems.append(f"  {key}: in a Compose file ({have}) but missing from config/versions.yml")
+    elif have is None:
+        problems.append(f"  {key}: in config/versions.yml ({want}) but no such Compose service")
+    elif want != have:
+        problems.append(f"  {key}: versions.yml says {want}, Compose says {have}")
+
+    if have and ":" not in have.rsplit("/", 1)[-1]:
+        problems.append(f"  {key}: image {have} has no tag")
+    elif have and have.endswith(":latest") and key != "nextcloud-aio/nextcloud-aio-mastercontainer":
+        problems.append(f"  {key}: uses :latest, which the repository forbids outside Nextcloud AIO")
+
+if problems:
+    print("config/versions.yml and services/*/compose.yml disagree:")
+    print("\n".join(problems))
+    sys.exit(1)
+
+print(f"Image pins consistent: {len(actual)} images across {len(set(k.split('/')[0] for k in actual))} services.")
+PY

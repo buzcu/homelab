@@ -7,7 +7,9 @@ services:
     environment:
       PUID: "1000"
       PGID: "1000"
-      TZ: Europe/Amsterdam
+      TZ: "${TZ:-Europe/Amsterdam}"
     volumes:
       - /srv/data/sonarr:/config
-      - /srv/data:/data
+      # Same single mount as qBittorrent, so hardlinks work. Scoped to the
+      # media library rather than all of /srv/data.
+      - /srv/data/library:/data

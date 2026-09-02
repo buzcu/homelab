@@ -1,0 +1,5 @@
+---
+# Docker's APT repository is per-architecture. Derived from host facts so an
+# arm64 box (or a future migration) does not silently get an amd64 repo.
+docker_apt_arch: >-
+  {{ {'x86_64': 'amd64', 'aarch64': 'arm64', 'armv7l': 'armhf'}.get(ansible_facts.architecture, 'amd64') }}

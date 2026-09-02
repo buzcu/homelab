@@ -2,10 +2,15 @@ services:
   homeassistant:
     image: ghcr.io/home-assistant/home-assistant:2026.8.3
     restart: unless-stopped
-    privileged: true
+    # Host networking is required for discovery integrations (mDNS, SSDP).
     network_mode: host
+    # Deliberately NOT privileged: that grants effective host root. Add only
+    # the specific devices an integration needs, e.g. a Bluetooth or Z-Wave
+    # adapter:
+    # devices:
+    #   - /dev/serial/by-id/usb-0658_0200-if00:/dev/ttyACM0
     environment:
-      TZ: Europe/Amsterdam
+      TZ: "${TZ:-Europe/Amsterdam}"
     volumes:
       - /srv/data/homeassistant:/config
       - /run/dbus:/run/dbus:ro

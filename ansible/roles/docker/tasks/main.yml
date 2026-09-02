@@ -24,7 +24,7 @@
 - name: Configure Docker repository
   ansible.builtin.apt_repository:
     repo: >-
-      deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc]
+      deb [arch={{ docker_apt_arch }} signed-by=/etc/apt/keyrings/docker.asc]
       https://download.docker.com/linux/debian
       {{ ansible_facts.distribution_release }} stable
     filename: docker
@@ -41,8 +41,31 @@
       - docker-buildx-plugin
       - docker-compose-plugin
 
+# Unbounded json-file logs are the most common way a homelab fills its root
+# filesystem. This applies to containers created after the daemon restarts;
+# existing containers keep their old settings until recreated.
+- name: Configure Docker daemon
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    mode: "0644"
+    content: |
+      {
+        "data-root": "{{ docker_data_root }}",
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "10m",
+          "max-file": "3"
+        },
+        "live-restore": true
+      }
+  notify: Restart Docker
+
 - name: Enable Docker
   ansible.builtin.systemd:
     name: docker
     enabled: true
     state: started
+
+# The shared "homelab" bridge network (Mosquitto <-> Zigbee2MQTT, LLDAP
+# consumers) is created by scripts/render, which runs before every deploy.
+# Doing it there avoids a hard dependency on the community.docker collection.

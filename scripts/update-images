@@ -1,18 +1,48 @@
 #!/usr/bin/env bash
+# Pre-pull the pinned images so a later deploy is fast and offline-safe.
+# This never changes a version pin and never recreates a container.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+
+require_root
+require_cmd docker
+require_compose_env
 
 echo "This script does NOT change version pins."
-echo "Review upstream release notes and edit config/versions.yml first."
+echo "Review upstream release notes, then edit config/versions.yml AND the"
+echo "service's compose.yml together (scripts/check-versions enforces this)."
 echo
 
-find "$ROOT/services" -name compose.yml -print0 |
-while IFS= read -r -d '' f; do
-  echo "==> $f"
-  docker compose -f "$f" pull
+failed=()
+pulled=0
+
+# A `find | while` loop hides every failure but the last one, so iterate over
+# an array and collect the failures explicitly.
+mapfile -t compose_files < <(find "$ROOT/services" -name compose.yml | sort)
+
+for f in "${compose_files[@]}"; do
+  svc="$(basename "$(dirname "$f")")"
+  if [[ "$(service_enabled "$svc")" == "false" ]]; then
+    log "Skipping $svc (disabled in config/services.yml)"
+    continue
+  fi
+  log "Pulling $svc"
+  if dc -f "$f" pull; then
+    pulled=$((pulled + 1))
+  else
+    failed+=("$svc")
+  fi
 done
 
 echo
-echo "Images pulled. Recreate services explicitly after validation:"
-echo "  sudo ./scripts/deploy <service>"
+if [[ ${#failed[@]} -gt 0 ]]; then
+  warn "pull failed for: ${failed[*]}"
+  exit 1
+fi
+
+log "Pulled images for $pulled service(s)."
+log "Recreate services explicitly after validation:"
+log "  sudo $ROOT/scripts/deploy <service>"

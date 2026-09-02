@@ -1,11 +1,17 @@
+# ADGUARD_DNS_BIND must be a real address of this host (config/secrets.env).
+# Debian usually has systemd-resolved on :53; free it first, e.g. by setting
+# DNSStubListener=no in /etc/systemd/resolved.conf and restarting the service.
+#
+# During onboarding, keep the admin interface on port 3000. Caddy owns :80 on
+# the host network, so AdGuard must not be moved there.
 services:
   adguardhome:
     image: adguard/adguardhome:v0.107.66
     restart: unless-stopped
     ports:
       - "127.0.0.1:3000:3000"
-      - "192.168.1.50:53:53/tcp"
-      - "192.168.1.50:53:53/udp"
+      - "${ADGUARD_DNS_BIND:?set ADGUARD_DNS_BIND in config/secrets.env}:53:53/tcp"
+      - "${ADGUARD_DNS_BIND}:53:53/udp"
     volumes:
       - /srv/data/adguard/work:/opt/adguardhome/work
       - /srv/data/adguard/conf:/opt/adguardhome/conf

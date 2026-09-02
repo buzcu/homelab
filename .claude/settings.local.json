@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(git -C C:\\\\werk\\\\temp\\\\homelab status --short 2>&1)",
+      "PowerShell(git -C C:\\\\werk\\\\temp\\\\homelab log --oneline -3 2>&1)",
+      "PowerShell($p = @\\('python','python3','py'\\); foreach \\($c in $p\\) { try { $v = & $c --version 2>&1; \"$c -> $v\" } catch { \"$c -> not found\" } }; \"\"; try { python -c \"import yaml; print\\('PyYAML', yaml.__version__\\)\" } catch { \"PyYAML not available via python\" })",
+      "Bash(set -e)",
+      "Bash(sed 's/^\\\\\\([A-Za-z_][A-Za-z0-9_]*\\\\\\)=$/\\\\1=ci-placeholder/' config/secrets.env.example)",
+      "Bash(cp /tmp/secrets.env config/secrets.env)",
+      "Bash(COMPOSE_ENV=/tmp/homelab-run/compose.env bash scripts/render --env-only)",
+      "Read(//tmp/homelab-run/**)",
+      "Bash(set -e *)",
+      "Bash(sed '1d;$d')",
+      "Bash(python3 /tmp/render_env.py config/secrets.env config/domains.yml /tmp/compose.env)",
+      "Bash(python3 -)",
+      "Bash(ACME_EMAIL=\"admin@example.com\" python3 /tmp/render_caddy.py config/domains.yml /tmp/Caddyfile)",
+      "Bash(python3 render_env.tmp.py config/secrets.env config/domains.yml compose.env.tmp)",
+      "Bash(sed -i 's|jellyfin/jellyfin:10.10.7|jellyfin/jellyfin:10.10.8|' services/jellyfin/compose.yml)",
+      "Bash(bash scripts/check-versions)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(sed -i 's|jellyfin/jellyfin:10.10.8|jellyfin/jellyfin:latest|' services/jellyfin/compose.yml)",
+      "PowerShell(Set-Location C:\\\\werk\\\\temp\\\\homelab; \"core.autocrlf = \" + \\(git config core.autocrlf\\); \"core.eol = \" + \\(git config core.eol\\))",
+      "PowerShell(python -m pip install --quiet --disable-pip-version-check yamllint 2>&1)",
+      "Bash(python -m yamllint .)",
+      "Bash(echo \"yamllint exit=$?\")"
+    ]
+  }
+}

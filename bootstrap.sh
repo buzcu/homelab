@@ -16,32 +16,46 @@ apt-get install -y \
   git \
   python3 \
   python3-pip \
-  python3-venv
+  python3-venv \
+  python3-yaml
 
-if [[ ! -f "$ROOT/ansible/inventory.yml" ]]; then
-  cp "$ROOT/ansible/inventory.yml.example" "$ROOT/ansible/inventory.yml"
-  echo "Created ansible/inventory.yml"
-fi
+# Host-specific configuration. These files are gitignored.
+seed() { # seed <example> <target> [mode]
+  local example="$ROOT/$1" target="$ROOT/$2" mode="${3:-0644}"
+  if [[ -f "$target" ]]; then
+    return
+  fi
+  install -m "$mode" "$example" "$target"
+  echo "Created $2 (from $1)"
+}
 
-if [[ ! -f "$ROOT/ansible/group_vars/all.yml" ]]; then
-  cp "$ROOT/ansible/group_vars/all.yml.example" "$ROOT/ansible/group_vars/all.yml"
-  echo "Created ansible/group_vars/all.yml"
-fi
+seed ansible/inventory.yml.example        ansible/inventory.yml
+seed ansible/group_vars/all.yml.example   ansible/group_vars/all.yml
+seed config/domains.yml.example           config/domains.yml
+seed config/secrets.env.example           config/secrets.env       0600
+seed backup/restic.env.example            backup/restic.env        0600
 
-if [[ ! -f "$ROOT/config/domains.yml" ]]; then
-  cp "$ROOT/config/domains.yml.example" "$ROOT/config/domains.yml"
-  echo "Created config/domains.yml"
-fi
+chmod +x "$ROOT"/scripts/* 2>/dev/null || true
+chmod 0600 "$ROOT/config/secrets.env" "$ROOT/backup/restic.env"
 
-ansible-galaxy collection install community.general
+ansible-galaxy collection install -r "$ROOT/ansible/requirements.yml"
 
 ansible-playbook \
   -i "$ROOT/ansible/inventory.yml" \
   "$ROOT/ansible/site.yml"
 
-echo
-echo "Host bootstrap complete."
-echo "Next:"
-echo "  1. Run: sudo tailscale up"
-echo "  2. Review config/services.yml and config/versions.yml"
-echo "  3. Run: sudo $ROOT/scripts/deploy core"
+cat <<EOF
+
+Host bootstrap complete.
+
+Next:
+  1. sudo tailscale up
+  2. Fill in config/secrets.env   (every empty value is required)
+     Generate values with: openssl rand -base64 36
+  3. Review config/domains.yml, config/services.yml and config/versions.yml
+  4. sudo $ROOT/scripts/render     (writes the Caddyfile and service configs)
+  5. sudo make validate
+  6. sudo $ROOT/scripts/deploy core
+
+Nothing is exposed to the public Internet by this script.
+EOF
