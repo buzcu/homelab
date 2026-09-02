@@ -19,7 +19,10 @@
       "Bash(bash scripts/check-versions)",
       "Bash(echo \"exit=$?\")",
       "Bash(sed -i 's|jellyfin/jellyfin:10.10.8|jellyfin/jellyfin:latest|' services/jellyfin/compose.yml)",
-      "PowerShell(Set-Location C:\\\\werk\\\\temp\\\\homelab; \"core.autocrlf = \" + \\(git config core.autocrlf\\); \"core.eol = \" + \\(git config core.eol\\))"
+      "PowerShell(Set-Location C:\\\\werk\\\\temp\\\\homelab; \"core.autocrlf = \" + \\(git config core.autocrlf\\); \"core.eol = \" + \\(git config core.eol\\))",
+      "PowerShell(python -m pip install --quiet --disable-pip-version-check yamllint 2>&1)",
+      "Bash(python -m yamllint .)",
+      "Bash(echo \"yamllint exit=$?\")"
     ]
   }
 }

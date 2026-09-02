@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib/common.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 
@@ -45,7 +46,7 @@ done
 
 [[ -n "$TARGET" ]] || { usage >&2; exit 1; }
 
-require_root "$TARGET"
+require_root
 require_cmd docker
 
 if [[ "$RENDER" == true ]]; then

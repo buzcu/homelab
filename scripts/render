@@ -10,6 +10,7 @@
 # config/domains.yml or config/secrets.env.
 set -euo pipefail
 
+# shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib/common.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 

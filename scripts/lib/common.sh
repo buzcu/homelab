@@ -25,14 +25,13 @@ declare -A DEPLOY_GROUPS=(
   [books]="calibre"
   [business]="odoo forgejo"
 )
-export DEPLOY_GROUPS_ORDER
 
 log()  { printf '==> %s\n' "$*"; }
 warn() { printf 'WARN: %s\n' "$*" >&2; }
 die()  { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 require_root() {
-  [[ "${EUID}" -eq 0 ]] || die "must run as root: sudo $0 $*"
+  [[ "${EUID}" -eq 0 ]] || die "must run as root. Re-run with: sudo $0 ..."
 }
 
 require_cmd() {
@@ -59,6 +58,9 @@ dc() {
 }
 
 # Expand a category name to its services, or pass a single service through.
+# The group values are space-separated service names, so the word splitting
+# below is the point of the expansion, not an oversight.
+# shellcheck disable=SC2086
 resolve_target() {
   local target="$1"
   if [[ "$target" == "all" ]]; then

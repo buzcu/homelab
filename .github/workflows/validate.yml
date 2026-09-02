@@ -19,7 +19,8 @@ jobs:
       - name: shellcheck
         run: |
           shellcheck -x bootstrap.sh scripts/render scripts/deploy scripts/backup \
-            scripts/healthcheck scripts/update-images scripts/check-versions
+            scripts/healthcheck scripts/update-images scripts/check-versions \
+            scripts/lib/common.sh
 
       - name: yamllint
         run: yamllint .
@@ -38,14 +39,16 @@ jobs:
           sed 's/^\([A-Za-z_][A-Za-z0-9_]*\)=$/\1=ci-placeholder/' \
             config/secrets.env.example > config/secrets.env
           cp config/domains.yml.example config/domains.yml
-          COMPOSE_ENV=/tmp/compose.env ./scripts/render --env-only
+          # A directory of its own: render creates it mode 0700, which it
+          # cannot do to a pre-existing /tmp.
+          COMPOSE_ENV=/tmp/homelab-ci/compose.env ./scripts/render --env-only
 
       - name: Validate Compose files
         run: |
           rc=0
           for f in services/*/compose.yml; do
             echo "==> $f"
-            docker compose --env-file /tmp/compose.env -f "$f" config -q || rc=1
+            docker compose --env-file /tmp/homelab-ci/compose.env -f "$f" config -q || rc=1
           done
           exit $rc
 

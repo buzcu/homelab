@@ -3,6 +3,7 @@
 # This never changes a version pin and never recreates a container.
 set -euo pipefail
 
+# shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib/common.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 

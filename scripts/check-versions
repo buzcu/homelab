@@ -4,6 +4,7 @@
 # Needs no Docker and no rendered environment, so CI can run it.
 set -euo pipefail
 
+# shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib/common.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 

@@ -3,6 +3,7 @@
 # so it is usable from cron, a monitor, or `make health` — not just by eye.
 set -uo pipefail
 
+# shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib/common.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 

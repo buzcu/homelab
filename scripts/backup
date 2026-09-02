@@ -16,6 +16,7 @@
 #   - Nextcloud AIO, which has its own supported Borg backup in the AIO UI
 set -euo pipefail
 
+# shellcheck source-path=SCRIPTDIR
 # shellcheck source=lib/common.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
 
