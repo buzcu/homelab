@@ -16,15 +16,8 @@ export RUNTIME_DIR COMPOSE_ENV
 HOMELAB_NETWORK="homelab"
 export HOMELAB_NETWORK
 
-DEPLOY_GROUPS_ORDER=(core documents photos media books business)
-declare -A DEPLOY_GROUPS=(
-  [core]="caddy nextcloud-aio vaultwarden homeassistant mosquitto zigbee2mqtt lldap adguard uptime-kuma"
-  [documents]="paperless stirling-pdf"
-  [photos]="immich"
-  [media]="jellyfin qbittorrent prowlarr radarr sonarr"
-  [books]="calibre"
-  [business]="odoo forgejo"
-)
+SERVICES_FILE="$ROOT/config/services.yml"
+export SERVICES_FILE
 
 log()  { printf '==> %s\n' "$*"; }
 warn() { printf 'WARN: %s\n' "$*" >&2; }
@@ -57,40 +50,113 @@ dc() {
   docker compose --env-file "$COMPOSE_ENV" "$@"
 }
 
+# ---------------------------------------------------------------------------
+# config/services.yml
+# ---------------------------------------------------------------------------
+# Parsed once per script run, not once per lookup. The catalogue is the single
+# structural source: categories, enablement, Caddy upstreams and backup scope
+# all come from here, so none of them can drift apart.
+# Upstreams are not kept here: scripts/render reads them straight out of the
+# catalogue when it builds the Caddyfile, and nothing in shell needs them.
+declare -A SERVICE_CATEGORY SERVICE_ENABLED SERVICE_BACKUP
+declare -A _CATEGORY_SEEN
+declare -a SERVICE_ORDER CATEGORY_ORDER
+_SERVICES_LOADED=false
+
+# Loaded lazily so a script that never asks about services (healthcheck) still
+# runs on a host without PyYAML.
+_load_services() {
+  [[ "$_SERVICES_LOADED" == true ]] && return 0
+  [[ -f "$SERVICES_FILE" ]] || die "$SERVICES_FILE missing"
+  require_yaml
+
+  # Unit separator, not tab: tab is IFS whitespace, so consecutive tabs would
+  # collapse and an empty field would silently shift every field after it.
+  local name category enabled backup
+  while IFS=$'\037' read -r name category enabled backup; do
+    [[ -n "$name" ]] || continue
+    SERVICE_ORDER+=("$name")
+    SERVICE_CATEGORY["$name"]="$category"
+    SERVICE_ENABLED["$name"]="$enabled"
+    SERVICE_BACKUP["$name"]="$backup"
+    if [[ -z "${_CATEGORY_SEEN[$category]:-}" ]]; then
+      _CATEGORY_SEEN["$category"]=1
+      CATEGORY_ORDER+=("$category")
+    fi
+  done < <(python3 - "$SERVICES_FILE" <<'PY'
+import sys, yaml
+# Never translate newlines: a \r would end up inside the last field.
+sys.stdout.reconfigure(newline="\n")
+with open(sys.argv[1]) as fh:
+    doc = yaml.safe_load(fh) or {}
+for name, spec in (doc.get("services") or {}).items():
+    spec = spec or {}
+    print("\x1f".join([
+        name,
+        str(spec.get("category", "")),
+        "true" if spec.get("enabled", True) else "false",
+        "true" if spec.get("backup", True) else "false",
+    ]))
+PY
+  )
+
+  [[ ${#SERVICE_ORDER[@]} -gt 0 ]] || die "$SERVICES_FILE defines no services"
+  _SERVICES_LOADED=true
+}
+
+# "true"/"false" for a service. An unlisted service defaults to enabled so a
+# new Compose directory is never silently skipped.
+service_enabled() {
+  _load_services
+  echo "${SERVICE_ENABLED[$1]:-true}"
+}
+
+is_category() {
+  _load_services
+  [[ -n "${_CATEGORY_SEEN[$1]:-}" ]]
+}
+
+services_in_category() {
+  _load_services
+  local svc
+  for svc in "${SERVICE_ORDER[@]}"; do
+    [[ "${SERVICE_CATEGORY[$svc]}" == "$1" ]] && printf '%s\n' "$svc"
+  done
+  return 0
+}
+
+# Services whose /srv/data directory scripts/backup archives.
+backed_up_services() {
+  _load_services
+  local svc
+  for svc in "${SERVICE_ORDER[@]}"; do
+    [[ "${SERVICE_BACKUP[$svc]}" == "true" ]] && printf '%s\n' "$svc"
+  done
+  return 0
+}
+
 # Expand a category name to its services, or pass a single service through.
-# The group values are space-separated service names, so the word splitting
-# below is the point of the expansion, not an oversight.
-# shellcheck disable=SC2086
 resolve_target() {
+  _load_services
   local target="$1"
   if [[ "$target" == "all" ]]; then
-    local g
-    for g in "${DEPLOY_GROUPS_ORDER[@]}"; do
-      printf '%s\n' ${DEPLOY_GROUPS[$g]}
-    done
-  elif [[ -n "${DEPLOY_GROUPS[$target]:-}" ]]; then
-    printf '%s\n' ${DEPLOY_GROUPS[$target]}
+    printf '%s\n' "${SERVICE_ORDER[@]}"
+  elif is_category "$target"; then
+    services_in_category "$target"
   else
     printf '%s\n' "$target"
   fi
 }
 
-# Read config/services.yml and echo "true"/"false" for a service.
-# An unlisted service defaults to enabled so a new Compose directory is never
-# silently skipped.
-service_enabled() {
-  local svc="$1"
-  local file="$ROOT/config/services.yml"
-  [[ -f "$file" ]] || { echo true; return; }
-  python3 - "$file" "$svc" <<'PY'
-import sys, yaml
-path, svc = sys.argv[1], sys.argv[2]
-with open(path) as fh:
-    data = yaml.safe_load(fh) or {}
-for group in data.values():
-    if isinstance(group, dict) and svc in group:
-        print("true" if group[svc] else "false")
-        sys.exit(0)
-print("true")
-PY
+# "  core       caddy, nextcloud-aio, ..." for --help output.
+describe_categories() {
+  _load_services
+  local category
+  for category in "${CATEGORY_ORDER[@]}"; do
+    local svcs
+    # paste cycles through -d's characters, so a two-character list would
+    # alternate ", " between items. Join with commas, then space them.
+    svcs="$(services_in_category "$category" | paste -sd, - | sed 's/,/, /g')"
+    printf '  %-10s %s\n' "$category" "$svcs"
+  done
 }

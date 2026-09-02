@@ -52,6 +52,18 @@ jobs:
           done
           exit $rc
 
+      # Catches a secret pasted into a file .gitignore does not cover - an
+      # Ansible var file, a README example, a Compose default. Scans history,
+      # not just the working tree, because a secret that was committed once is
+      # compromised even after it is removed.
+      - name: Secret scan
+        run: |
+          version=8.30.1
+          curl -sSfL --retry 3 \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          ./gitleaks git . --redact --no-banner --exit-code 1
+
       # `git ls-files --error-unmatch A B` exits non-zero on the first
       # untracked path, so it reported success no matter what B was. Listing
       # matches and testing for output has no such hole, and it also catches

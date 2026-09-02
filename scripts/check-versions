@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Fail if any services/*/compose.yml image disagrees with config/versions.yml.
-# Keeps the "images are pinned in one reviewable place" design goal honest.
-# Needs no Docker and no rendered environment, so CI can run it.
+# Enforce the repository's two "single source of truth" claims:
+#   - every services/*/compose.yml image matches config/versions.yml
+#   - every service directory has a config/services.yml entry, and vice versa
+# Neither can be kept honest by convention alone, and both are the kind of
+# drift that only shows up as a missing route or an unbacked-up database
+# months later. Needs no Docker and no rendered environment, so CI can run it.
 set -euo pipefail
 
 # shellcheck source-path=SCRIPTDIR
@@ -45,5 +48,29 @@ if problems:
     print("\n".join(problems))
     sys.exit(1)
 
-print(f"Image pins consistent: {len(actual)} images across {len(set(k.split('/')[0] for k in actual))} services.")
+# The catalogue drives deploy categories, Caddy routes and backup scope, so a
+# directory it does not list is invisible to all three at once.
+catalogue = (yaml.safe_load((root / "config/services.yml").read_text()) or {}).get("services") or {}
+dirs = {p.parent.name for p in (root / "services").glob("*/compose.yml")}
+
+catalogue_problems = []
+for name in sorted(dirs - set(catalogue)):
+    catalogue_problems.append(
+        f"  {name}: services/{name}/compose.yml exists but config/services.yml does not list it")
+for name in sorted(set(catalogue) - dirs):
+    catalogue_problems.append(
+        f"  {name}: config/services.yml lists it but services/{name}/compose.yml is missing")
+for name, spec in sorted(catalogue.items()):
+    if not (spec or {}).get("category"):
+        catalogue_problems.append(f"  {name}: no category, so no deploy target includes it")
+
+if catalogue_problems:
+    print("config/services.yml and services/ disagree:")
+    print("\n".join(catalogue_problems))
+    sys.exit(1)
+
+services = len(dirs)
+categories = len({(s or {}).get("category") for s in catalogue.values()})
+print(f"Image pins consistent: {len(actual)} images across {services} services.")
+print(f"Catalogue consistent: {services} services in {categories} categories.")
 PY

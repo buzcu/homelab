@@ -1,19 +1,25 @@
 # caddy
 
 The Caddyfile is **generated**. `scripts/render` builds
-`/srv/data/caddy/Caddyfile` from `config/domains.yml` plus the upstream port
-table in that script. Do not edit the generated file; the next render
-overwrites it.
+`/srv/data/caddy/Caddyfile` by joining the service catalogue in
+`config/services.yml` (which port to proxy to, and whether the service is
+enabled at all) with the hostnames in `config/domains.yml`. Do not edit the
+generated file; the next render overwrites it.
 
-Only entries with a non-empty domain get a route, so an unconfigured service
-can never break Caddy's startup — which is exactly what an unsubstituted
-placeholder used to do.
+The split is deliberate: `config/services.yml` is committed and structural,
+while hostnames are host-specific and belong in the gitignored file, so nobody's
+personal domains end up in the repository.
 
-Adding a service to the proxy takes three things:
+A route is emitted only when all three hold — the service is enabled, it
+declares an `upstream`, and it has a non-empty hostname. Anything else is
+skipped with a warning naming the reason, so a missing route is never silent
+and an unconfigured service can never break Caddy's startup.
 
-1. a loopback port binding in the service's `compose.yml`
-2. an entry in `config/domains.yml`
-3. a line in the `ROUTES` table in `scripts/render`
+Adding a service to the proxy takes two edits and no script change:
+
+1. an `upstream:` in that service's `config/services.yml` entry, matching the
+   loopback binding in its `compose.yml`
+2. a hostname in `config/domains.yml`
 
 Caddy runs on the host network, so it reaches every service's `127.0.0.1`
 binding, and it owns ports 80 and 443. Nothing else may bind them.
