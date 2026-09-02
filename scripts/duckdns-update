@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Point a DuckDNS name at this host's current public IP.
+#
+# Run by homelab-duckdns.timer every 5 minutes (DuckDNS asks for no more often
+# than that). Without it, a dynamic-IP reassignment silently breaks every
+# public name in config/domains.yml and every certificate renewal with it.
+#
+# Reads DUCKDNS_DOMAIN and DUCKDNS_TOKEN from config/secrets.env. It does not
+# use /run/homelab/compose.env: that lives on tmpfs and is gone after a reboot,
+# whereas this has to work from the first timer firing onwards.
+set -euo pipefail
+
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+
+require_root
+require_cmd curl
+
+SECRETS="$ROOT/config/secrets.env"
+[[ -f "$SECRETS" ]] || die "$SECRETS missing. Copy config/secrets.env.example and fill it in."
+
+# Sourced without `set -a`: the other secrets in this file stay out of curl's
+# environment.
+# shellcheck disable=SC1090
+source "$SECRETS"
+
+domain="${DUCKDNS_DOMAIN:-}"
+token="${DUCKDNS_TOKEN:-}"
+
+if [[ -z "$domain" || -z "$token" ]]; then
+  die "DUCKDNS_DOMAIN and DUCKDNS_TOKEN must both be set in config/secrets.env"
+fi
+
+# DuckDNS expects the label, not the fully qualified name. Accept either.
+label="${domain%.duckdns.org}"
+
+# An empty ip= tells DuckDNS to use the source address of this request, which
+# is what makes this work from behind NAT.
+response="$(curl -fsS --max-time 30 --retry 2 --retry-delay 5 \
+  --get https://www.duckdns.org/update \
+  --data-urlencode "domains=$label" \
+  --data-urlencode "token=$token" \
+  --data-urlencode "ip=")" \
+  || die "could not reach www.duckdns.org"
+
+# DuckDNS answers HTTP 200 with a body of OK or KO, so curl's exit status alone
+# would report a rejected token as a successful update.
+case "$response" in
+  OK*) log "DuckDNS updated: ${label}.duckdns.org" ;;
+  KO*) die "DuckDNS rejected the update (KO). Check DUCKDNS_DOMAIN and DUCKDNS_TOKEN." ;;
+  *)   die "unexpected response from DuckDNS: ${response}" ;;
+esac

@@ -84,6 +84,53 @@ Set them to the host's Tailscale IP if you need tailnet access.
 
 Do not port-forward qBittorrent/Radarr/Sonarr/Prowlarr to the Internet.
 
+## Publishing to the Internet
+
+The default posture is tailnet-only. Publishing takes four things, and missing
+any one of them fails in a way that looks like a different problem:
+
+1. **A name.** Put it in `config/domains.yml`. Only services with a non-empty
+   entry get a Caddy route.
+2. **`ACME_EMAIL`.** Left empty, Caddy issues internal (self-signed)
+   certificates, which browsers reject. Set it to a mailbox you read; expiry
+   warnings go there.
+3. **Ports 80 and 443 forwarded** to this host on the router. Port 80 is not
+   optional even if you only want HTTPS: Let's Encrypt's HTTP-01 challenge
+   connects to it.
+4. **`firewall_public_web: true`**, if `firewall_enabled` is also true.
+   Otherwise the ruleset accepts 80/443 from `lan_cidr` only and every request
+   from the Internet is dropped, including the ACME challenge.
+
+Test with Let's Encrypt's staging CA first. A wrong port forward otherwise
+burns the weekly rate limit for the name before anything works.
+
+Publish only what is designed for it — Vaultwarden, Immich, Nextcloud,
+Paperless all carry their own authentication. Leave LLDAP, AdGuard's admin
+interface, Uptime Kuma, the media stack and the Nextcloud AIO admin interface
+on the tailnet.
+
+### Dynamic DNS
+
+For a home connection with a changing IP, set `duckdns_enabled: true` in
+`group_vars/all.yml` and fill in `DUCKDNS_DOMAIN` and `DUCKDNS_TOKEN` in
+`config/secrets.env`. `homelab-duckdns.timer` then runs
+`scripts/duckdns-update` a minute after boot and every five minutes after that.
+
+The script reads `config/secrets.env` directly rather than the rendered
+`/run/homelab/compose.env`, because the latter is on tmpfs and does not survive
+a reboot. It treats DuckDNS's `KO` response as a failure, so a bad token puts
+the unit into `failed` instead of looping quietly:
+
+    systemctl status homelab-duckdns.service
+    journalctl -u homelab-duckdns.service
+
+Subdomains work without extra configuration: `*.<name>.duckdns.org` resolves to
+the same address, so one DuckDNS name covers every service in
+`config/domains.yml`. A wildcard *certificate* is a different matter — it needs
+a DNS-01 challenge and a Caddy build that includes the DuckDNS provider, which
+the pinned image does not have. Per-subdomain HTTP-01 certificates need none of
+that and are what the generated Caddyfile asks for.
+
 ## Firewall
 
 `roles/firewall` ships a real nftables ruleset, but `firewall_enabled` defaults
@@ -93,6 +140,11 @@ Tailscale gives you a second way in.
 The ruleset owns one table (`inet homelab`) and never flushes the ruleset, so
 Docker's own netfilter rules survive a reload. It filters the input hook only;
 published container ports traverse the forward hook, which Docker owns.
+
+SSH and DNS are always restricted to `lan_cidr`; `firewall_public_web` widens
+ports 80 and 443 only. DHCP client traffic is accepted explicitly — without it
+a policy-drop input chain can leave the host unable to renew its lease, which
+takes away the LAN path to SSH at the same moment.
 
 If you do lock yourself out, from a physical console:
 

@@ -4,17 +4,14 @@
     name: docker
     enabled: true
 
-- name: Install homelab backup timer
+- name: Install homelab backup units
   ansible.builtin.copy:
-    src: homelab-backup.service
-    dest: /etc/systemd/system/homelab-backup.service
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
     mode: "0644"
-
-- name: Install homelab backup timer unit
-  ansible.builtin.copy:
-    src: homelab-backup.timer
-    dest: /etc/systemd/system/homelab-backup.timer
-    mode: "0644"
+  loop:
+    - homelab-backup.service
+    - homelab-backup.timer
 
 - name: Enable backup timer
   ansible.builtin.systemd:
@@ -22,3 +19,31 @@
     name: homelab-backup.timer
     enabled: true
     state: started
+
+# DuckDNS is opt-in: only hosts published under a dynamic-DNS name need it.
+# The token itself lives in config/secrets.env, which Ansible does not read.
+- name: Install DuckDNS units
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item }}"
+    mode: "0644"
+  loop:
+    - homelab-duckdns.service
+    - homelab-duckdns.timer
+  when: duckdns_enabled | bool
+
+- name: Enable DuckDNS timer
+  ansible.builtin.systemd:
+    daemon_reload: true
+    name: homelab-duckdns.timer
+    enabled: true
+    state: started
+  when: duckdns_enabled | bool
+
+- name: Disable DuckDNS timer when it is turned off
+  ansible.builtin.systemd:
+    name: homelab-duckdns.timer
+    enabled: false
+    state: stopped
+  failed_when: false
+  when: not (duckdns_enabled | bool)

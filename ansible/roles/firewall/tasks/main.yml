@@ -44,9 +44,25 @@
           iifname "{{ tailscale_interface }}" accept
           udp dport 41641 accept
 
+          # DHCP client. Without this a policy-drop input chain can leave the
+          # host unable to obtain or renew its lease after a reboot, which
+          # takes away the LAN path to SSH at the same time.
+          udp sport 67 udp dport 68 accept
+          ip6 saddr fe80::/10 udp sport 547 udp dport 546 accept
+
           # LAN: SSH, the Caddy reverse proxy, and AdGuard DNS.
           ip saddr {{ lan_cidr }} tcp dport { 22, 53, 80, 443 } accept
           ip saddr {{ lan_cidr }} udp dport { 53 } accept
+          {% if firewall_public_web | bool %}
+
+          # Public web. Required both to reach the services listed in
+          # config/domains.yml from the Internet and for Let's Encrypt's
+          # HTTP-01 challenge, which connects to port 80 from outside.
+          # Not restricted by address family: an AAAA record would otherwise
+          # resolve to a port the v6 path drops.
+          # SSH and DNS deliberately stay LAN-only above.
+          tcp dport { 80, 443 } accept
+          {% endif %}
 
           counter comment "dropped by homelab firewall"
         }

@@ -1,0 +1,13 @@
+[Unit]
+Description=Update DuckDNS with this host's public IP
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/homelab/scripts/duckdns-update
+# The script exits non-zero on a KO response or an unreachable API, so a bad
+# token lands the unit in "failed" instead of looping quietly. Check with:
+#   systemctl status homelab-duckdns.service
+#   journalctl -u homelab-duckdns.service
+TimeoutStartSec=2min

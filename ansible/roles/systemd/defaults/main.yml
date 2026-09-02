@@ -1,0 +1,3 @@
+---
+# See roles/firewall/defaults for why the role carries its own default.
+duckdns_enabled: false

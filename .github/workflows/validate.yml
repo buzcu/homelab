@@ -20,7 +20,7 @@ jobs:
         run: |
           shellcheck -x bootstrap.sh scripts/render scripts/deploy scripts/backup \
             scripts/healthcheck scripts/update-images scripts/check-versions \
-            scripts/lib/common.sh
+            scripts/duckdns-update scripts/lib/common.sh
 
       - name: yamllint
         run: yamllint .

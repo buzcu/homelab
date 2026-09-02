@@ -28,7 +28,7 @@ lint:
 	if command -v shellcheck >/dev/null 2>&1; then \
 	  shellcheck -x bootstrap.sh scripts/render scripts/deploy scripts/backup \
 	    scripts/healthcheck scripts/update-images scripts/check-versions \
-	    scripts/lib/common.sh || rc=1; \
+	    scripts/duckdns-update scripts/lib/common.sh || rc=1; \
 	else echo "shellcheck not installed; skipping"; fi; \
 	if command -v yamllint >/dev/null 2>&1; then \
 	  yamllint . || rc=1; \

@@ -30,3 +30,14 @@ tailscale_interface: tailscale0
 # Recovery if you do lock yourself out: boot to console and run
 #   nft delete table inet homelab
 firewall_enabled: false
+
+# Accept ports 80 and 443 from any source, not just lan_cidr. Required when
+# services are published to the Internet through a dynamic-DNS name, and for
+# Let's Encrypt's HTTP-01 challenge. SSH and DNS stay LAN-only either way.
+# Only meaningful when firewall_enabled is true.
+firewall_public_web: false
+
+# DuckDNS updater (roles/systemd). Set true to install and enable
+# homelab-duckdns.timer, which keeps a dynamic-DNS name pointed at this host
+# every five minutes. The name and token go in config/secrets.env.
+duckdns_enabled: false
