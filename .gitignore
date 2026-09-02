@@ -18,7 +18,10 @@ ansible/collections/
 *.retry
 __pycache__/
 
-# Editor / OS noise.
+# Editor / OS / tooling noise.
 *.swp
 *~
 .DS_Store
+
+# Claude Code per-machine settings; not part of the deployment.
+.claude/
