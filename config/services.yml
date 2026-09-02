@@ -1,0 +1,33 @@
+# true = enabled for deployment. Set false to keep the stack installed but
+# not deployed by category scripts.
+core:
+  caddy: true
+  nextcloud-aio: true
+  vaultwarden: true
+  homeassistant: true
+  mosquitto: true
+  zigbee2mqtt: false
+  lldap: true
+  adguard: false
+  uptime-kuma: true
+
+documents:
+  paperless: true
+  stirling-pdf: true
+
+photos:
+  immich: true
+
+media:
+  jellyfin: false
+  qbittorrent: false
+  prowlarr: false
+  radarr: false
+  sonarr: false
+
+books:
+  calibre: false
+
+business:
+  odoo: false
+  forgejo: false

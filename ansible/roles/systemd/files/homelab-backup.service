@@ -1,0 +1,7 @@
+[Unit]
+Description=Homelab backup
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/homelab/scripts/backup

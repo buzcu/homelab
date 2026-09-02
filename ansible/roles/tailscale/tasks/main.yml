@@ -1,0 +1,24 @@
+---
+- name: Check Tailscale installation
+  ansible.builtin.command: tailscale version
+  register: tailscale_version
+  changed_when: false
+  failed_when: false
+
+- name: Install Tailscale
+  ansible.builtin.shell: |
+    set -e
+    curl -fsSL https://tailscale.com/install.sh | sh
+  args:
+    executable: /bin/bash
+  when: tailscale_version.rc != 0
+
+- name: Enable Tailscale daemon
+  ansible.builtin.systemd:
+    name: tailscaled
+    enabled: true
+    state: started
+
+- name: Inform user about authentication
+  ansible.builtin.debug:
+    msg: "Run 'tailscale up' after bootstrap to join the tailnet."

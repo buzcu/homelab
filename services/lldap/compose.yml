@@ -1,0 +1,16 @@
+services:
+  lldap:
+    image: lldap/lldap:2025-01-25
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:17170:17170"
+      - "127.0.0.1:3890:3890"
+    environment:
+      TZ: Europe/Amsterdam
+      UID: "1000"
+      GID: "1000"
+      LLDAP_JWT_SECRET: "${LLDAP_JWT_SECRET}"
+      LLDAP_LDAP_USER_PASS: "${LLDAP_LDAP_USER_PASS}"
+      LLDAP_LDAP_BASE_DN: "dc=home,dc=arpa"
+    volumes:
+      - /srv/data/lldap:/data

@@ -1,0 +1,11 @@
+---
+- name: Configure homelab host
+  hosts: all
+  become: true
+  roles:
+    - base
+    - docker
+    - storage
+    - tailscale
+    - firewall
+    - systemd

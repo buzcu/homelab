@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+echo "This script does NOT change version pins."
+echo "Review upstream release notes and edit config/versions.yml first."
+echo
+
+find "$ROOT/services" -name compose.yml -print0 |
+while IFS= read -r -d '' f; do
+  echo "==> $f"
+  docker compose -f "$f" pull
+done
+
+echo
+echo "Images pulled. Recreate services explicitly after validation:"
+echo "  sudo ./scripts/deploy <service>"

@@ -1,0 +1,10 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0.22
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1883:1883"
+    volumes:
+      - /srv/data/mosquitto/config:/mosquitto/config
+      - /srv/data/mosquitto/data:/mosquitto/data
+      - /srv/data/mosquitto/log:/mosquitto/log

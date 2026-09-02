@@ -1,0 +1,21 @@
+homelab_timezone: Europe/Amsterdam
+homelab_user: homelab
+docker_data_root: /var/lib/docker
+
+data_root: /srv/data
+backup_root: /srv/backups
+
+# Dedicated data disk:
+# If you want Ansible to mount a dedicated disk, set these after formatting it.
+data_device: ""
+data_mount: /srv/data
+data_filesystem: ext4
+
+# Set true only after confirming the SSH key works.
+harden_ssh: false
+
+# LAN CIDR used by the firewall. Adjust to your network.
+lan_cidr: 192.168.1.0/24
+
+# Tailscale interface.
+tailscale_interface: tailscale0

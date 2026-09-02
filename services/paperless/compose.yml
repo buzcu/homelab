@@ -1,0 +1,40 @@
+services:
+  broker:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    volumes:
+      - /srv/data/paperless/redis:/data
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: paperless
+      POSTGRES_USER: paperless
+      POSTGRES_PASSWORD: "${PAPERLESS_DB_PASSWORD}"
+    volumes:
+      - /srv/data/paperless/postgres:/var/lib/postgresql/data
+
+  webserver:
+    image: ghcr.io/paperless-ngx/paperless-ngx:2.20.0
+    restart: unless-stopped
+    depends_on:
+      - db
+      - broker
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      PAPERLESS_REDIS: redis://broker:6379
+      PAPERLESS_DBHOST: db
+      PAPERLESS_DBNAME: paperless
+      PAPERLESS_DBUSER: paperless
+      PAPERLESS_DBPASS: "${PAPERLESS_DB_PASSWORD}"
+      PAPERLESS_TIME_ZONE: Europe/Amsterdam
+      PAPERLESS_URL: "https://${PAPERLESS_DOMAIN}"
+      PAPERLESS_SECRET_KEY: "${PAPERLESS_SECRET_KEY}"
+      PAPERLESS_OCR_LANGUAGE: eng+deu+tur
+    volumes:
+      - /srv/data/paperless/data:/usr/src/paperless/data
+      - /srv/data/paperless/media:/usr/src/paperless/media
+      - /srv/data/paperless/export:/usr/src/paperless/export
+      - /srv/data/paperless/consume:/usr/src/paperless/consume

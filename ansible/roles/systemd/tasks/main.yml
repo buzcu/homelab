@@ -1,0 +1,24 @@
+---
+- name: Ensure Docker restarts after boot
+  ansible.builtin.systemd:
+    name: docker
+    enabled: true
+
+- name: Install homelab backup timer
+  ansible.builtin.copy:
+    src: homelab-backup.service
+    dest: /etc/systemd/system/homelab-backup.service
+    mode: "0644"
+
+- name: Install homelab backup timer unit
+  ansible.builtin.copy:
+    src: homelab-backup.timer
+    dest: /etc/systemd/system/homelab-backup.timer
+    mode: "0644"
+
+- name: Enable backup timer
+  ansible.builtin.systemd:
+    daemon_reload: true
+    name: homelab-backup.timer
+    enabled: true
+    state: started

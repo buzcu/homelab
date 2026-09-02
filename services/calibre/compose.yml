@@ -1,0 +1,13 @@
+services:
+  calibre-web:
+    image: linuxserver/calibre-web:0.6.25
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8083:8083"
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Europe/Amsterdam
+    volumes:
+      - /srv/data/calibre:/config
+      - /srv/data/books:/books

@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+STAMP="$(date +%Y-%m-%d_%H-%M-%S)"
+DEST="/srv/backups/$STAMP"
+
+mkdir -p "$DEST"
+chmod 700 "$DEST"
+
+# Configuration snapshot
+tar -C /srv -czf "$DEST/docker-config.tgz" data/caddy data/homeassistant data/lldap \
+  data/mosquitto data/zigbee2mqtt 2>/dev/null || true
+
+# Compose and Ansible repository snapshot
+tar -C "$ROOT" -czf "$DEST/repository.tgz" \
+  ansible config services scripts backup README.md Makefile .gitignore
+
+# PostgreSQL logical dumps for supported stacks.
+docker exec immich_postgres pg_dump -U postgres immich \
+  > "$DEST/immich.sql" 2>/dev/null || true
+
+docker exec odoo-db-1 pg_dump -U odoo postgres \
+  > "$DEST/odoo.sql" 2>/dev/null || true
+
+docker exec paperless-db-1 pg_dump -U paperless paperless \
+  > "$DEST/paperless.sql" 2>/dev/null || true
+
+# Retain 14 local snapshots. Replicate these to another machine using restic.
+find /srv/backups -mindepth 1 -maxdepth 1 -type d -mtime +14 -exec rm -rf {} +
+
+echo "Backup snapshot: $DEST"

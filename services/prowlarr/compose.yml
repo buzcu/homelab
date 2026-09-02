@@ -1,0 +1,13 @@
+services:
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:2.0.5
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9696:9696"
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      TZ: Europe/Amsterdam
+    volumes:
+      - /srv/data/prowlarr:/config
+      - /srv/data:/data

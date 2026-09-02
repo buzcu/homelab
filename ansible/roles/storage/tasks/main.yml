@@ -1,0 +1,54 @@
+---
+- name: Create data mount point
+  ansible.builtin.file:
+    path: "{{ data_mount }}"
+    state: directory
+    mode: "0755"
+
+- name: Fail if requested data device does not exist
+  ansible.builtin.stat:
+    path: "{{ data_device }}"
+  register: data_device_stat
+  when: data_device | length > 0
+
+- name: Mount dedicated data disk
+  ansible.posix.mount:
+    path: "{{ data_mount }}"
+    src: "{{ data_device }}"
+    fstype: "{{ data_filesystem }}"
+    opts: defaults,noatime
+    state: mounted
+  when:
+    - data_device | length > 0
+    - data_device_stat.stat.exists
+
+- name: Create persistent directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ data_root }}/caddy"
+    - "{{ data_root }}/nextcloud-aio"
+    - "{{ data_root }}/vaultwarden"
+    - "{{ data_root }}/homeassistant"
+    - "{{ data_root }}/mosquitto"
+    - "{{ data_root }}/zigbee2mqtt"
+    - "{{ data_root }}/lldap"
+    - "{{ data_root }}/adguard"
+    - "{{ data_root }}/uptime-kuma"
+    - "{{ data_root }}/paperless"
+    - "{{ data_root }}/stirling-pdf"
+    - "{{ data_root }}/immich"
+    - "{{ data_root }}/jellyfin"
+    - "{{ data_root }}/qbittorrent"
+    - "{{ data_root }}/prowlarr"
+    - "{{ data_root }}/radarr"
+    - "{{ data_root }}/sonarr"
+    - "{{ data_root }}/calibre"
+    - "{{ data_root }}/odoo"
+    - "{{ data_root }}/forgejo"
+    - "{{ data_root }}/downloads"
+    - "{{ data_root }}/media"
+    - "{{ data_root }}/books"
+    - "{{ backup_root }}"

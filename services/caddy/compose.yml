@@ -1,0 +1,11 @@
+services:
+  caddy:
+    image: caddy:2.10.2
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - /srv/data/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - /srv/data/caddy/data:/data
+      - /srv/data/caddy/config:/config

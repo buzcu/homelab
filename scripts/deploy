@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SERVICES_FILE="$ROOT/config/services.yml"
+
+usage() {
+  cat <<EOF
+Usage:
+  sudo $0 <category>
+  sudo $0 <service>
+  sudo $0 all
+  sudo $0 --help
+
+Categories:
+  core       caddy, nextcloud-aio, vaultwarden, homeassistant, mosquitto,
+             zigbee2mqtt, lldap, adguard, uptime-kuma
+  documents  paperless, stirling-pdf
+  photos     immich
+  media      jellyfin, qbittorrent, prowlarr, radarr, sonarr
+  books      calibre
+  business   odoo, forgejo
+EOF
+}
+
+[[ $# -eq 1 ]] || { usage; exit 1; }
+TARGET="$1"
+[[ "$TARGET" != "--help" ]] || { usage; exit 0; }
+
+declare -A groups=(
+  [core]="caddy nextcloud-aio vaultwarden homeassistant mosquitto zigbee2mqtt lldap adguard uptime-kuma"
+  [documents]="paperless stirling-pdf"
+  [photos]="immich"
+  [media]="jellyfin qbittorrent prowlarr radarr sonarr"
+  [books]="calibre"
+  [business]="odoo forgejo"
+)
+
+services_for_target=()
+if [[ "$TARGET" == "all" ]]; then
+  for g in core documents photos media books business; do
+    services_for_target+=(${groups[$g]})
+  done
+elif [[ -n "${groups[$TARGET]:-}" ]]; then
+  services_for_target=(${groups[$TARGET]})
+else
+  services_for_target=("$TARGET")
+fi
+
+for svc in "${services_for_target[@]}"; do
+  dir="$ROOT/services/$svc"
+  compose="$dir/compose.yml"
+
+  if [[ ! -f "$compose" ]]; then
+    echo "ERROR: missing $compose" >&2
+    exit 1
+  fi
+
+  echo "==> Validating $svc"
+  docker compose -f "$compose" config -q
+
+  echo "==> Pulling $svc"
+  docker compose -f "$compose" pull
+
+  echo "==> Starting $svc"
+  docker compose -f "$compose" up -d
+
+  echo "==> Status $svc"
+  docker compose -f "$compose" ps
+done

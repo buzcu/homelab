@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "=== Host ==="
+hostnamectl
+echo
+echo "=== Docker ==="
+docker info --format 'Server={{.ServerVersion}}'
+echo
+echo "=== Containers ==="
+docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+echo
+echo "=== Disk ==="
+df -h / /srv/data /srv/backups 2>/dev/null || df -h
+echo
+echo "=== Memory ==="
+free -h
+echo
+echo "=== Tailscale ==="
+tailscale status || true

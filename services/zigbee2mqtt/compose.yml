@@ -1,0 +1,14 @@
+services:
+  zigbee2mqtt:
+    image: koenkk/zigbee2mqtt:2.6.0
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      TZ: Europe/Amsterdam
+    volumes:
+      - /srv/data/zigbee2mqtt:/app/data
+      - /run/udev:/run/udev:ro
+    devices:
+      # Replace with your actual adapter, e.g. /dev/serial/by-id/usb-...
+      - "${ZIGBEE_DEVICE}:/dev/ttyUSB0"

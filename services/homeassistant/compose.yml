@@ -1,0 +1,11 @@
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:2026.8.3
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+    environment:
+      TZ: Europe/Amsterdam
+    volumes:
+      - /srv/data/homeassistant:/config
+      - /run/dbus:/run/dbus:ro
