@@ -92,7 +92,11 @@ with open(secrets_path) as fh:
 with open(domains_path) as fh:
     domains = (yaml.safe_load(fh) or {}).get('domains') or {}
 for name, domain in domains.items():
-    env[f"{name.upper()}_DOMAIN"] = domain or ''
+    # Service names may contain hyphens; shell variable names may not. Without
+    # this, `nextcloud-aio` produced NEXTCLOUD-AIO_DOMAIN, which this script's
+    # own `source` of the rendered file reports as "command not found".
+    key = re.sub(r'[^A-Za-z0-9]', '_', name).upper()
+    env[f"{key}_DOMAIN"] = domain or ''
 
 # Vaultwarden wants a full URL; derive it from the domain when unset.
 if not env.get('VAULTWARDEN_URL') and env.get('VAULTWARDEN_DOMAIN'):
